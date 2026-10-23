@@ -39,7 +39,7 @@ Builds run on GitHub Actions:
 - **Release** (`.github/workflows/release.yml`) — on a `v*` tag, builds and publishes a GitHub Release:
   macOS universal `.dmg`, Windows x64 `.zip`, Linux x64/arm64 `.tar.gz`, plus `SHA256SUMS.txt`.
   The version comes from the tag; `-suffix` tags are marked pre-release. Run it manually
-  (workflow_dispatch) to get `-dev.N` artifacts without publishing.
+  (workflow_dispatch) or push a `release/**` branch to get `-dev.N` artifacts without publishing.
 
 ```bash
 scripts/release.sh 0.2.0 --push   # bump Cargo version, commit, tag v0.2.0, push → release

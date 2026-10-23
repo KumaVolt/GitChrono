@@ -2,10 +2,12 @@ name: Release
 
 # Push a tag like `v0.2.0` (see scripts/release.sh) to build every platform and
 # publish a GitHub Release. Tags with a suffix (`v0.2.0-beta.1`) become pre-releases.
-# `workflow_dispatch` builds the artifacts without publishing, for testing.
+# Pushing a `release/**` branch or running it manually builds the artifacts
+# without publishing — a dry run of the whole pipeline.
 on:
   push:
     tags: ["v*"]
+    branches: ["release/**"]
   workflow_dispatch:
 
 permissions:
