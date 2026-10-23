@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GitChrono — Fast, native Git GUI for macOS, Windows &amp; Linux</title>
-  <meta name="description" content="GitChrono is a free, open-source Git GUI client written in Rust: a GitKraken-style commit graph, line-level staging, instant diffs and optional AI commit messages. For macOS, Windows and Linux.">
-  <meta name="keywords" content="git gui, git client, gitkraken alternative, git commit graph, rust git client, open source git gui, mac git client, linux git client, windows git client">
+  <meta name="description" content="GitChrono is a free, open-source Git GUI client written in Rust: a colorful commit graph, line-level staging, instant diffs and optional AI commit messages. For macOS, Windows and Linux.">
+  <meta name="keywords" content="git gui, git client, git gui alternative, git commit graph, rust git client, open source git gui, mac git client, linux git client, windows git client">
   <link rel="canonical" href="https://gitchrono.com/">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="theme-color" content="#111318">
@@ -13,7 +13,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="GitChrono">
   <meta property="og:title" content="GitChrono — Fast, native Git GUI">
-  <meta property="og:description" content="A GitKraken-style commit graph, line-level staging and instant diffs. Written in Rust, GPU-rendered, free and open source.">
+  <meta property="og:description" content="A colorful commit graph, line-level staging and instant diffs. Written in Rust, GPU-rendered, free and open source.">
   <meta property="og:image" content="https://gitchrono.com/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -22,7 +22,7 @@
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="GitChrono — Fast, native Git GUI">
-  <meta name="twitter:description" content="A GitKraken-style commit graph, line-level staging and instant diffs. Written in Rust, free and open source.">
+  <meta name="twitter:description" content="A colorful commit graph, line-level staging and instant diffs. Written in Rust, free and open source.">
   <meta name="twitter:image" content="https://gitchrono.com/assets/og.png">
   <script type="application/ld+json">
   {
@@ -46,7 +46,7 @@
         "@type": "FAQPage",
         "mainEntity": [
           { "@type": "Question", "name": "Is GitChrono free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The Git client is free and open source under the Apache-2.0 licence. Optional AI features work with your own API key, or with prepaid credits later." } },
-          { "@type": "Question", "name": "Is GitChrono a GitKraken alternative?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. GitChrono offers a GitKraken-style commit graph, staging panel, branch and stash management in a native Rust app instead of Electron." } },
+          { "@type": "Question", "name": "Why another Git client?", "acceptedAnswer": { "@type": "Answer", "text": "GitChrono is native Rust instead of Electron: it opens huge repositories in seconds, stays light on memory and battery, and works without an account." } },
           { "@type": "Question", "name": "Which platforms does GitChrono support?", "acceptedAnswer": { "@type": "Answer", "text": "macOS (Apple Silicon and Intel), Windows 64-bit and Linux (x86_64 and ARM64)." } },
           { "@type": "Question", "name": "Does GitChrono upload my code?", "acceptedAnswer": { "@type": "Answer", "text": "No. GitChrono works locally with your git installation. AI features only send a trimmed diff, with secrets redacted, to the provider you choose, and only when you click an AI button." } },
           { "@type": "Question", "name": "Is GitChrono stable?", "acceptedAnswer": { "@type": "Answer", "text": "GitChrono is in alpha. Expect bugs and keep a pushed remote or backup of repositories you can't afford to lose." } }
@@ -255,7 +255,7 @@
     <div class="wrap">
       <span class="eyebrow"><span class="dot"></span> Open source · written in Rust</span>
       <h1>The Git client that <span class="grad">keeps up with you.</span></h1>
-      <p class="lede">GitChrono gives you a GitKraken-style commit graph, line-by-line staging and instant diffs — in a native app that opens huge repositories in seconds.</p>
+      <p class="lede">GitChrono gives you a colorful commit graph, line-by-line staging and instant diffs — in a native app that opens huge repositories in seconds.</p>
       <div class="cta">
         <a class="btn btn-primary" id="hero-download" href="#download">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 20h14"/></svg>
@@ -284,7 +284,7 @@
     <div class="wrap">
       <div class="kicker">Features</div>
       <h2>Everything you reach for, every day.</h2>
-      <p class="sub">The workflow you know from GitKraken, rebuilt from scratch as a native app with nothing in between you and your repository.</p>
+      <p class="sub">The visual Git workflow you know, rebuilt from scratch as a native app with nothing in between you and your repository.</p>
       <div class="grid">
         <div class="card" style="--c: var(--cyan)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M6 9c0 3 12 0 12 3"/></svg></div>
@@ -407,7 +407,7 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
       <h2>Questions, answered.</h2>
       <div class="faq">
         <details><summary>Is GitChrono free?</summary><p>Yes. The Git client is free and open source under the Apache-2.0 licence. Optional AI features work with your own API key, or with prepaid credits later.</p></details>
-        <details><summary>Is GitChrono a GitKraken alternative?</summary><p>Yes. You get a GitKraken-style commit graph, staging panel and branch, tag and stash management, in a native Rust app instead of Electron.</p></details>
+        <details><summary>Why another Git client?</summary><p>GitChrono is native Rust instead of Electron: it opens huge repositories in seconds, stays light on memory and battery, and works without an account.</p></details>
         <details><summary>Which platforms are supported?</summary><p>macOS (Apple Silicon and Intel), Windows 64-bit and Linux (x86_64 and ARM64).</p></details>
         <details><summary>Does GitChrono upload my code?</summary><p>No. It works locally with your own <code>git</code>. AI features only send a trimmed diff, with secrets redacted, to the provider you choose, and only when you click an AI button.</p></details>
         <details><summary>Is it stable?</summary><p>GitChrono is in alpha: use it at your own risk. Keep a pushed remote or a backup of repositories you can't afford to lose.</p></details>
@@ -421,7 +421,7 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
       <div class="links">
         <a href="https://github.com/KumaVolt/GitChrono">GitHub</a>
         <a href="https://github.com/KumaVolt/GitChrono/releases">Releases</a>
-        <a href="https://github.com/KumaVolt/GitChrono/blob/main/docs/parity.md">Roadmap</a>
+        <a href="https://github.com/KumaVolt/GitChrono/blob/main/docs/roadmap.md">Roadmap</a>
         <a href="#" id="cookie-settings">Cookie settings</a>
       </div>
     </div>

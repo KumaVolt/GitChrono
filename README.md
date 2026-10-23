@@ -1,6 +1,6 @@
 # GitChrono
 
-A fast, native Git client in the spirit of GitKraken — 100% Rust, GPU-rendered with
+A fast, native Git client — 100% Rust, GPU-rendered with
 [gpui](https://gpui-kit.com).
 
 > [!WARNING]
@@ -58,4 +58,4 @@ notarization secrets are added. Windows builds are unsigned.
 The crates in this repository are Apache-2.0. Paid Pro features (hosted integrations,
 team features, AI) will live in a separate crate outside this repo.
 
-See [docs/parity.md](docs/parity.md) for the GitKraken parity roadmap.
+See [docs/roadmap.md](docs/roadmap.md) for the roadmap.

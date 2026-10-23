@@ -74,8 +74,7 @@ thin margin:
 - Pin the model version per feature (e.g. `mistral-small-4-…`), so a silent model swap can't
   change our costs.
 
-For reference: GitKraken bundles ~250k tokens/week with paid plans on Gemini Flash; we're
-pay-as-you-go with no subscription.
+We're pay-as-you-go with no subscription.
 
 ## Status
 

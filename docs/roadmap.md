@@ -1,4 +1,4 @@
-# GitKraken parity map
+# Roadmap
 
 Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 
@@ -43,7 +43,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Graph compaction for wide histories | ⬜ |
 | Packaging: signed .dmg, Windows, Linux, auto-update | ⬜ |
 
-## Tier 3 — Parity
+## Tier 3 — Complete
 | Feature | Status |
 |---|---|
 | Launchpad: PRs/issues across GitHub/GitLab/Bitbucket/Azure | 💎 |
@@ -54,11 +54,11 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Release notes from tag range → gitchrono.com changelog | 💎 |
 | Cloud patches | 💎 |
 
-## Gaps found in GitKraken Desktop 12.x (researched 2026-10-23)
+## Next up (2026-10-23)
 
 Ordered by how much a daily user misses them.
 
-| Feature | GitKraken | Status |
+| Feature | Scope | Status |
 |---|---|---|
 | Command palette | ⌘P: run any action, "Open in" detected IDEs | ✅ (no "Open in" yet) |
 | Search / filter graph | message, author, sha, file; highlight matches | ✅ (not by file yet) |
