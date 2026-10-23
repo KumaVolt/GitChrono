@@ -99,8 +99,18 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) ->
         .item(copy_item("Copy commit SHA", ws, id.clone()))
 }
 
-pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Option<&str>, index: usize) -> PopupMenu {
+/// `filter`: (hidden, soloed) state of a branch in the graph.
+pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Option<&str>, index: usize, filter: (bool, bool)) -> PopupMenu {
     let name = name.to_string();
+    let is_branch = matches!(kind, RefKind::Local | RefKind::Remote) && current != Some(name.as_str());
+    let menu = if is_branch {
+        let (h, s) = (name.clone(), name.clone());
+        menu.item(item(if filter.0 { "Show in graph" } else { "Hide in graph" }, ws, move |this, _, cx| this.toggle_hidden(&h, cx)))
+            .item(item(if filter.1 { "Stop soloing" } else { "Solo in graph" }, ws, move |this, _, cx| this.toggle_solo(&s, cx)))
+            .separator()
+    } else {
+        menu
+    };
     let cur = current.unwrap_or("HEAD").to_string();
     match kind {
         RefKind::Local | RefKind::Head => {

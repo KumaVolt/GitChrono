@@ -33,7 +33,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Feature | Status |
 |---|---|
 | Merge conflict editor | ✅ ours / theirs / both per conflict, whole-file take ours/theirs, save & mark resolved |
-| Drag-and-drop branch → merge/rebase | ⬜ |
+| Drag-and-drop branch → merge/rebase | ✅ sidebar branches; options depend on which side is checked out |
 | Interactive rebase (reorder/squash/edit) | ✅ pick, reword, squash, fixup, drop, reorder; undoable |
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
 | Side-by-side diff, syntax highlighting | ✅ syntect (pure Rust); Split/Unified toggle, line staging in both |
@@ -70,9 +70,9 @@ Ordered by how much a daily user misses them.
 | Split / inline / hunk diff views, syntax highlighting | | ✅ |
 | Merge conflict tool | 3-way, AI-assisted resolution | ✅ (AI suggestions later) |
 | Interactive rebase editor | reorder, squash, reword, drop | ✅ |
-| Drag a branch onto another | merge / rebase / PR | ⬜ |
-| Select several commits | combined diff, patch, cherry-pick range | ⬜ |
-| Hide / solo / pin branches | | ⬜ |
+| Drag a branch onto another | merge / rebase / PR | ✅ (PR later) |
+| Select several commits | combined diff, patch, cherry-pick range | ✅ ⌘/Shift-click: cherry-pick, revert, rebase, copy SHAs |
+| Hide / solo / pin branches | | ✅ hide & solo (saved per repo); pin todo |
 | Tab aliases, tab reordering | | ⬜ |
 | Clone / init dialogs | including from GitHub/GitLab | ⬜ |
 | Submodules and LFS | | ⬜ |

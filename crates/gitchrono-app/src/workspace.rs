@@ -113,6 +113,8 @@ pub struct Workspace {
     pub graph: Arc<Graph>,
     pub selection: Selection,
     pub commit_files: Vec<FileChange>,
+    /// Commit indices picked with ⌘/Shift-click (two or more means multi-select).
+    pub multi: Vec<usize>,
     pub diff: Option<DiffView>,
     pub prompt: Option<Prompt>,
     pub busy: Option<SharedString>,
@@ -147,6 +149,9 @@ pub struct Workspace {
     /// Open the worktree that the next reload discovers (after "create worktree").
     open_new_worktree: bool,
     pub rebase_editor: Option<crate::rebase_ui::RebaseEditor>,
+    pub drop_menu: Option<crate::drag::DropMenu>,
+    /// Branches hidden from / soloed in the graph (saved per repository).
+    pub ref_filter: gitchrono_core::RefFilter,
     pub conflict: Option<crate::conflict_ui::ConflictView>,
     /// Side-by-side instead of unified diffs.
     pub diff_split: bool,
@@ -180,6 +185,7 @@ impl Workspace {
             graph: Arc::default(),
             selection: Selection::None,
             commit_files: Vec::new(),
+            multi: Vec::new(),
             diff: None,
             prompt: None,
             busy: None,
@@ -210,6 +216,8 @@ impl Workspace {
             search: None,
             open_new_worktree: false,
             rebase_editor: None,
+            drop_menu: None,
+            ref_filter: Default::default(),
             conflict: None,
             diff_split: std::env::var_os("GITCHRONO_SPLIT").is_some(),
             file_history: None,
@@ -230,6 +238,7 @@ impl Workspace {
         match Repo::open(&path) {
             Ok(repo) => {
                 let repo = Arc::new(repo);
+                self.ref_filter = crate::projects::load_ref_filter(repo.root());
                 self._watcher = self.start_watcher(&repo, cx);
                 self.repo = Some(repo);
                 self.selection = Selection::None;
@@ -510,8 +519,9 @@ impl Workspace {
             Selection::Commit(i) => self.snap.commits.get(i).map(|c| c.id.clone()),
             _ => None,
         };
+        let filter = self.ref_filter.clone();
         let task = cx.background_spawn(async move {
-            let snap = repo.snapshot(LOG_LIMIT)?;
+            let snap = repo.snapshot_filtered(LOG_LIMIT, &filter)?;
             let graph = gitchrono_graph::layout(
                 snap.commits.iter().map(|c| (c.id.as_str(), c.parents.iter().map(String::as_str))),
             );
@@ -532,6 +542,8 @@ impl Workspace {
                             }
                         }
                         this.status = std::mem::take(&mut snap.status);
+                        // Indices into the old commit list mean nothing now.
+                        this.multi.clear();
                         this.snap = Arc::new(snap);
                         this.graph = Arc::new(graph);
                         this.selection = match selected_id {
@@ -700,6 +712,85 @@ impl Workspace {
             self.load_commit_files(i, cx);
         }
         cx.notify();
+    }
+
+    // ------------------------------------------------------------ graph filter
+
+    pub fn toggle_hidden(&mut self, name: &str, cx: &mut Context<Self>) {
+        let f = &mut self.ref_filter;
+        if !f.hidden.remove(name) {
+            f.hidden.insert(name.to_string());
+            f.solo.remove(name);
+        }
+        self.filter_changed(cx);
+    }
+
+    pub fn toggle_solo(&mut self, name: &str, cx: &mut Context<Self>) {
+        let f = &mut self.ref_filter;
+        if !f.solo.remove(name) {
+            f.solo.insert(name.to_string());
+            f.hidden.remove(name);
+        }
+        self.filter_changed(cx);
+    }
+
+    pub fn clear_ref_filter(&mut self, cx: &mut Context<Self>) {
+        self.ref_filter = Default::default();
+        self.filter_changed(cx);
+    }
+
+    fn filter_changed(&mut self, cx: &mut Context<Self>) {
+        if let Some(repo) = &self.repo {
+            crate::projects::save_ref_filter(repo.root(), &self.ref_filter);
+        }
+        self.reload(cx);
+    }
+
+    /// Row click: plain selects one, ⌘/Ctrl toggles, Shift extends a range.
+    pub fn click_row(&mut self, row: usize, modifiers: Modifiers, cx: &mut Context<Self>) {
+        let wip = usize::from(self.has_wip());
+        let toggle = modifiers.platform || modifiers.control;
+        if row < wip || !(toggle || modifiers.shift) {
+            self.multi.clear();
+            self.select_row(row, cx);
+            return;
+        }
+        let index = row - wip;
+        if self.multi.is_empty() {
+            if let Selection::Commit(current) = self.selection {
+                self.multi.push(current);
+            }
+        }
+        if modifiers.shift {
+            let anchor = self.multi.first().copied().unwrap_or(index);
+            let (lo, hi) = (anchor.min(index), anchor.max(index));
+            self.multi = std::iter::once(anchor).chain((lo..=hi).filter(|&i| i != anchor)).collect();
+        } else if let Some(pos) = self.multi.iter().position(|&i| i == index) {
+            self.multi.remove(pos);
+        } else {
+            self.multi.push(index);
+        }
+        match self.multi.len() {
+            0 => self.selection = Selection::None,
+            1 => {
+                let only = self.multi[0];
+                self.multi.clear();
+                self.select_row(only + wip, cx);
+                return;
+            }
+            _ => {
+                self.selection = Selection::Commit(index);
+                self.diff = None;
+            }
+        }
+        cx.notify();
+    }
+
+    /// Multi-selected commits, oldest first (the list is newest first).
+    pub fn multi_commits(&self) -> Vec<&Commit> {
+        let mut indices = self.multi.clone();
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+        indices.iter().filter_map(|&i| self.snap.commits.get(i)).collect()
     }
 
     pub fn select_wip(&mut self, cx: &mut Context<Self>) {

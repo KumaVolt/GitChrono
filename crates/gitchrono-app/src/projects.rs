@@ -58,6 +58,53 @@ impl Session {
     }
 }
 
+/// Per-repository graph filters, keyed by repository root.
+#[derive(Default, Serialize, Deserialize)]
+struct RepoPrefs {
+    #[serde(default)]
+    hidden: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    solo: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+fn prefs_path() -> Option<PathBuf> {
+    Some(dirs::config_dir()?.join("gitchrono").join("repos.json"))
+}
+
+fn load_prefs() -> RepoPrefs {
+    prefs_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+pub fn load_ref_filter(root: &Path) -> gitchrono_core::RefFilter {
+    let prefs = load_prefs();
+    let key = root.to_string_lossy().into_owned();
+    gitchrono_core::RefFilter {
+        hidden: prefs.hidden.get(&key).cloned().unwrap_or_default().into_iter().collect(),
+        solo: prefs.solo.get(&key).cloned().unwrap_or_default().into_iter().collect(),
+    }
+}
+
+pub fn save_ref_filter(root: &Path, filter: &gitchrono_core::RefFilter) {
+    let mut prefs = load_prefs();
+    let key = root.to_string_lossy().into_owned();
+    let set = |map: &mut std::collections::BTreeMap<String, Vec<String>>, values: &std::collections::BTreeSet<String>| {
+        if values.is_empty() {
+            map.remove(&key);
+        } else {
+            map.insert(key.clone(), values.iter().cloned().collect());
+        }
+    };
+    set(&mut prefs.hidden, &filter.hidden);
+    set(&mut prefs.solo, &filter.solo);
+    let Some(path) = prefs_path() else { return };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&prefs) {
+        std::fs::write(path, text).ok();
+    }
+}
+
 /// A repository root: has a `.git` directory, or a `.git` file (worktrees, submodules).
 pub fn is_repo(path: &Path) -> bool {
     path.join(".git").exists()

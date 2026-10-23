@@ -223,8 +223,13 @@ impl Workspace {
         let refs = &self.snap.refs;
         let ws = cx.entity().downgrade();
         let current = self.status.branch.clone();
+        let ref_filter = self.ref_filter.clone();
         let item = |id: SharedString, label: String, extra: String, target: String, is_current: bool, kind: RefKind, index: usize, cx: &mut Context<Self>| {
             let name = label.clone();
+            let filter_state = (ref_filter.hidden.contains(&label), ref_filter.solo.contains(&label));
+            let (drag_name, drop_target) = (label.clone(), label.clone());
+            let shown = !matches!(kind, RefKind::Local | RefKind::Remote) || ref_filter.shows(&label, is_current);
+            let extra = if filter_state.1 { format!("solo {extra}") } else if !shown { format!("hidden {extra}") } else { extra };
             let ws = ws.clone();
             let current = current.clone();
             div()
@@ -236,6 +241,7 @@ impl Workspace {
                 .text_sm()
                 .text_color(c(if is_current { theme::TEXT } else { theme::MUTED }))
                 .when(is_current, |d| d.font_weight(FontWeight::BOLD))
+                .when(!shown, |d| d.opacity(0.45))
                 .hover(|s| s.bg(c(theme::HOVER)))
                 .cursor_pointer()
                 .child(div().w(px(12.)).flex_none().text_color(c(theme::ADD)).child(if is_current { "✓" } else { "" }))
@@ -253,7 +259,17 @@ impl Workspace {
                         this.select_commit_id(&target, cx);
                     }
                 }))
-                .context_menu(move |menu, _, _| menus::ref_menu(menu, &ws, &name, kind, current.as_deref(), index))
+                .when(matches!(kind, RefKind::Local | RefKind::Remote), |d| {
+                    d.on_drag(crate::drag::DraggedRef { name: drag_name.clone() }, |r, _, _, cx| {
+                        cx.new(|_| crate::drag::DragPreview(r.name.clone().into()))
+                    })
+                })
+                .when(kind == RefKind::Local, |d| {
+                    let target = drop_target.clone();
+                    d.drag_over::<crate::drag::DraggedRef>(|s, _, _, _| s.bg(c(theme::SELECTED)))
+                        .on_drop(cx.listener(move |this, dragged: &crate::drag::DraggedRef, _, cx| this.drop_ref(dragged, target.clone(), cx)))
+                })
+                .context_menu(move |menu, _, _| menus::ref_menu(menu, &ws, &name, kind, current.as_deref(), index, filter_state))
         };
 
         let mut col = div()
@@ -367,6 +383,30 @@ impl Workspace {
             .flex_col()
             .bg(c(theme::BG))
             .children(self.render_search_bar(cx))
+            .when(!self.ref_filter.is_empty(), |d| {
+                let f = &self.ref_filter;
+                let text = if f.solo.is_empty() {
+                    format!("{} branch{} hidden from the graph", f.hidden.len(), if f.hidden.len() == 1 { "" } else { "es" })
+                } else {
+                    format!("Graph shows only {}", f.solo.iter().cloned().collect::<Vec<_>>().join(", "))
+                };
+                d.child(
+                    div()
+                        .h(px(30.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .px_3()
+                        .bg(c(theme::PANEL_ALT))
+                        .border_b_1()
+                        .border_color(c(theme::BORDER))
+                        .text_xs()
+                        .text_color(c(theme::MUTED))
+                        .child(div().flex_1().child(text))
+                        .child(Button::new("filter-clear").label("Show all").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.clear_ref_filter(cx)))),
+                )
+            })
             .child(header)
             .child(list)
     }
@@ -412,7 +452,7 @@ impl Workspace {
             .text_sm()
             .cursor_pointer()
             .hover(|s| s.bg(c(theme::HOVER)))
-            .on_click(cx.listener(move |this, _, _, cx| this.select_row(row, cx)));
+            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.click_row(row, ev.modifiers(), cx)));
 
         if wip && row == 0 {
             let selected = self.selection == Selection::Wip;
@@ -451,7 +491,7 @@ impl Workspace {
         let commit = &self.snap.commits[index];
         let layout = self.graph.rows[index].clone();
         let color = theme::lane(layout.color);
-        let selected = self.selection == Selection::Commit(index);
+        let selected = self.selection == Selection::Commit(index) || self.multi.contains(&index);
         let merge = commit.parents.len() > 1;
         let dimmed = self.search.as_ref().is_some_and(|s| !s.matches.is_empty() && !s.hit.contains(&index));
         let ws = cx.entity().downgrade();
@@ -751,6 +791,71 @@ impl Workspace {
         )
     }
 
+    fn render_multi(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let commits = self.multi_commits();
+        let n = commits.len();
+        let ids: Vec<String> = commits.iter().map(|c| c.id.clone()).collect();
+        let shas = commits.iter().map(|c| c.short_id.clone()).collect::<Vec<_>>().join(" ");
+        let has_merge = commits.iter().any(|c| c.parents.len() > 1);
+        let oldest_parent = commits.first().and_then(|c| c.parents.first().cloned());
+        let (pick, revert) = (ids.clone(), ids.clone());
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .p_3()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(c(theme::BORDER))
+                    .child(div().text_base().font_weight(FontWeight::BOLD).child(format!("{n} commits selected")))
+                    .child(div().text_xs().text_color(c(theme::FAINT)).child("⌘-click to add or remove, Shift-click for a range"))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_1()
+                            .child(Button::new("multi-pick").label(format!("Cherry-pick {n}")).small().outline().disabled(has_merge).on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    let ids = pick.clone();
+                                    this.run("Cherry-picking", Change::Refs, cx, move |r| ids.iter().try_for_each(|id| r.cherry_pick(id)));
+                                },
+                            )))
+                            .child(Button::new("multi-revert").label(format!("Revert {n}")).small().outline().disabled(has_merge).on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    let ids = revert.clone();
+                                    // Newest first, so each revert applies cleanly on top of the last.
+                                    this.run("Reverting", Change::Refs, cx, move |r| ids.iter().rev().try_for_each(|id| r.revert(id)));
+                                },
+                            )))
+                            .when_some(oldest_parent, |d, base| {
+                                d.child(Button::new("multi-rebase").label("Interactive rebase…").small().outline().on_click(cx.listener(
+                                    move |this, _, window, cx| this.open_rebase_editor(base.clone(), window, cx),
+                                )))
+                            })
+                            .child(Button::new("multi-copy").label("Copy SHAs").small().ghost().on_click(cx.listener(move |_, _, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(shas.clone()));
+                            }))),
+                    ),
+            )
+            .child(div().id("multi-list").flex_1().overflow_y_scroll().children(commits.iter().rev().enumerate().map(|(i, commit)| {
+                div()
+                    .id(("multi", i))
+                    .px_3()
+                    .py_1()
+                    .flex()
+                    .gap_2()
+                    .text_sm()
+                    .border_b_1()
+                    .border_color(c(theme::BORDER))
+                    .child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child(commit.short_id.clone()))
+                    .child(div().flex_1().truncate().child(commit.summary.clone()))
+            })))
+    }
+
     fn render_terminal_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let active = self.terminals.get(self.terminal_index).cloned();
         div()
@@ -855,6 +960,8 @@ impl Render for Workspace {
         };
         let right = if let Some(history) = &self.file_history {
             Some(self.render_file_history(history, cx).into_any_element())
+        } else if self.multi.len() > 1 {
+            Some(self.render_multi(cx).into_any_element())
         } else {
             match self.selection {
             Selection::Wip => Some(self.render_staging(cx).into_any_element()),
@@ -890,5 +997,6 @@ impl Render for Workspace {
             .children(self.render_prompt(cx))
             .children(self.render_ai_settings(cx))
             .children(self.render_rebase_editor(cx))
+            .children(self.render_drop_menu(cx))
     }
 }

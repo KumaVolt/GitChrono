@@ -28,14 +28,76 @@ pub struct Snapshot {
     pub worktrees: Vec<Worktree>,
 }
 
+/// Which branches the graph walks. The checked-out branch always shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RefFilter {
+    /// Branch names (`main`, `origin/main`) left out of the graph.
+    pub hidden: std::collections::BTreeSet<String>,
+    /// When non-empty, only these branches are walked (tags and stashes too are left out).
+    pub solo: std::collections::BTreeSet<String>,
+}
+
+impl RefFilter {
+    pub fn is_empty(&self) -> bool {
+        self.hidden.is_empty() && self.solo.is_empty()
+    }
+
+    pub fn shows(&self, name: &str, current: bool) -> bool {
+        current || if self.solo.is_empty() { !self.hidden.contains(name) } else { self.solo.contains(name) }
+    }
+
+    /// The refs the graph is built from.
+    pub fn apply(&self, refs: &Refs) -> Refs {
+        if self.is_empty() {
+            return refs.clone();
+        }
+        let mut walked = refs.clone();
+        walked.local.retain(|b| self.shows(&b.name, b.current));
+        walked.remote.retain(|b| self.shows(&b.name, false));
+        if !self.solo.is_empty() {
+            walked.tags.clear();
+            walked.stashes.clear();
+        }
+        walked
+    }
+}
+
 impl Repo {
     pub fn snapshot(&self, limit: usize) -> anyhow::Result<Snapshot> {
+        self.snapshot_filtered(limit, &RefFilter::default())
+    }
+
+    pub fn snapshot_filtered(&self, limit: usize, filter: &RefFilter) -> anyhow::Result<Snapshot> {
         let mut refs = self.refs()?;
         refs.stashes = self.stashes().unwrap_or_default();
         self.tracking(&mut refs).ok();
-        let commits = self.log(&refs, limit)?;
+        let commits = self.log(&filter.apply(&refs), limit)?;
         let status = self.status()?;
         let worktrees = self.worktrees().unwrap_or_default();
         Ok(Snapshot { refs, commits, status, worktrees })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn branch(name: &str, current: bool) -> Branch {
+        Branch { name: name.into(), full_name: format!("refs/heads/{name}"), target: "0".repeat(40), current, upstream: None, ahead: 0, behind: 0 }
+    }
+
+    #[test]
+    fn filter_keeps_current_branch() {
+        let refs = Refs { local: vec![branch("main", true), branch("wip", false), branch("old", false)], ..Default::default() };
+        let mut filter = RefFilter::default();
+        filter.hidden.insert("old".into());
+        filter.hidden.insert("main".into());
+        let names: Vec<String> = filter.apply(&refs).local.into_iter().map(|b| b.name).collect();
+        assert_eq!(names, ["main", "wip"]);
+
+        let mut solo = RefFilter::default();
+        solo.solo.insert("old".into());
+        let names: Vec<String> = solo.apply(&refs).local.into_iter().map(|b| b.name).collect();
+        assert_eq!(names, ["main", "old"]);
     }
 }
