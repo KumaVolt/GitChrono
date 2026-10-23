@@ -21,6 +21,7 @@ pub struct Snapshot {
     pub refs: Refs,
     pub commits: Vec<Commit>,
     pub status: Status,
+    pub worktrees: Vec<Worktree>,
 }
 
 impl Repo {
@@ -30,6 +31,7 @@ impl Repo {
         self.tracking(&mut refs).ok();
         let commits = self.log(&refs, limit)?;
         let status = self.status()?;
-        Ok(Snapshot { refs, commits, status })
+        let worktrees = self.worktrees().unwrap_or_default();
+        Ok(Snapshot { refs, commits, status, worktrees })
     }
 }

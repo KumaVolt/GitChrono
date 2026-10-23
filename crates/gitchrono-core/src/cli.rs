@@ -34,6 +34,28 @@ pub fn git(cwd: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+fn parse_worktrees(out: &str) -> Vec<Worktree> {
+    let mut list = Vec::new();
+    for block in out.split("\n\n").filter(|b| !b.trim().is_empty()) {
+        let mut wt = Worktree { path: Default::default(), head: None, branch: None, main: list.is_empty(), locked: false, prunable: false };
+        for line in block.lines() {
+            let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+            match key {
+                "worktree" => wt.path = value.into(),
+                "HEAD" => wt.head = Some(value.to_string()),
+                "branch" => wt.branch = Some(value.strip_prefix("refs/heads/").unwrap_or(value).to_string()),
+                "locked" => wt.locked = true,
+                "prunable" => wt.prunable = true,
+                _ => {}
+            }
+        }
+        if !wt.path.as_os_str().is_empty() {
+            list.push(wt);
+        }
+    }
+    list
+}
+
 fn status_from_xy(c: u8) -> Option<FileStatus> {
     Some(match c {
         b'A' => FileStatus::Added,
@@ -186,6 +208,32 @@ impl Repo {
             out.push_str(&format!("diff --git a/{path} b/{path}\nnew file (untracked)\n"));
         }
         Ok(out)
+    }
+
+    pub fn worktrees(&self) -> Result<Vec<Worktree>> {
+        Ok(parse_worktrees(&self.git(&["worktree", "list", "--porcelain"])?))
+    }
+
+    /// `git worktree add`: check out `start` at `path`, creating `new_branch` if given.
+    pub fn add_worktree(&self, path: &Path, new_branch: Option<&str>, start: Option<&str>) -> Result<()> {
+        let path = path.to_string_lossy();
+        let mut args = vec!["worktree", "add"];
+        if let Some(branch) = new_branch {
+            args.extend(["-b", branch]);
+        }
+        args.push(&path);
+        args.extend(start);
+        self.git(&args).map(drop)
+    }
+
+    pub fn remove_worktree(&self, path: &Path, force: bool) -> Result<()> {
+        let path = path.to_string_lossy();
+        let mut args = vec!["worktree", "remove"];
+        if force {
+            args.push("--force");
+        }
+        args.push(&path);
+        self.git(&args).map(drop)
     }
 
     pub fn stage(&self, paths: &[&str]) -> Result<()> {

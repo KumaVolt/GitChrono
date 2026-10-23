@@ -156,6 +156,7 @@ impl Shell {
                 git_op("Push", "Pushing", Change::Refs, |r| r.push(false)),
                 repo_action("Create branch…", |ws, w, cx| ws.prompt_create_branch(w, cx)),
                 repo_action("Stash changes…", |ws, w, cx| ws.prompt_stash(w, cx)),
+                repo_action("Create worktree…", |ws, w, cx| ws.prompt_new_worktree(w, cx)),
                 git_op("Pop stash", "Popping stash", Change::Refs, |r| r.stash_pop(0)),
                 git_op("Stage all changes", "Staging", Change::Status, |r| r.stage_all()),
                 git_op("Unstage all changes", "Unstaging", Change::Status, |r| r.unstage_all()),
@@ -175,6 +176,17 @@ impl Shell {
             }
             if let Some(next) = w.redo_stack.last() {
                 items.push(repo_action(&format!("Redo {}", next.label.to_lowercase()), |ws, _, cx| ws.redo(cx)).detail("⌘⇧Z"));
+            }
+            let root = w.repo.as_ref().map(|r| r.root().to_path_buf());
+            for wt in w.snap.worktrees.iter().filter(|wt| Some(&wt.path) != root.as_ref()) {
+                let path = wt.path.clone();
+                let branch = wt.branch.clone().unwrap_or_else(|| "detached".into());
+                items.push(
+                    Item::new("Worktree", format!("Open worktree {}", crate::projects::display_name(&path)), move |s, w, cx| {
+                        s.open_path(path.clone(), w, cx)
+                    })
+                    .detail(branch),
+                );
             }
             let current = w.status.branch.clone();
             for b in &w.snap.refs.local {

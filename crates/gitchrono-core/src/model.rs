@@ -169,3 +169,15 @@ pub struct FileDiff {
     pub additions: usize,
     pub deletions: usize,
 }
+
+/// A linked (or the main) working tree of the repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Worktree {
+    pub path: std::path::PathBuf,
+    pub head: Option<String>,
+    /// Short branch name; `None` when detached.
+    pub branch: Option<String>,
+    pub main: bool,
+    pub locked: bool,
+    pub prunable: bool,
+}

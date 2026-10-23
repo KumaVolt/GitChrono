@@ -117,7 +117,13 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
                     .item(item("Pull", ws, |this, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(false))))
                     .separator();
             }
-            menu.item({
+            menu.when(!is_current, |menu| {
+                let name = name.clone();
+                menu.item(item(format!("Create worktree for {name}…"), ws, move |this, window, cx| {
+                    this.prompt_worktree_for_branch(name.clone(), false, window, cx)
+                }))
+            })
+            .item({
                 let name = name.clone();
                 item("Rename…", ws, move |this, window, cx| {
                     let old = name.clone();
@@ -142,6 +148,12 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
             .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout_remote(n)))
             .item(op_item(format!("Merge {name} into {cur}"), "Merging", Change::Refs, ws, name.clone(), |r, n| r.merge(n)))
             .item(op_item(format!("Rebase {cur} onto {name}"), "Rebasing", Change::Refs, ws, name.clone(), |r, n| r.rebase(n)))
+            .item({
+                let name = name.clone();
+                item(format!("Create worktree for {name}…"), ws, move |this, window, cx| {
+                    this.prompt_worktree_for_branch(name.clone(), true, window, cx)
+                })
+            })
             .separator()
             .item({
                 let name = name.clone();
@@ -210,4 +222,15 @@ pub fn operation_name(op: Operation) -> &'static str {
         Operation::Revert => "Revert",
         Operation::None => "",
     }
+}
+
+pub fn worktree_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, removable: bool) -> PopupMenu {
+    let open = path.clone();
+    let remove = path.clone();
+    menu.item(item("Open in tab", ws, move |_, _, cx| cx.emit(crate::workspace::WorkspaceEvent::OpenPath(open.clone()))))
+        .when(removable, |menu| {
+            menu.item(item("Remove worktree…", ws, move |this, window, cx| this.remove_worktree(remove.clone(), window, cx)))
+        })
+        .separator()
+        .item(copy_item("Copy path", ws, path.to_string_lossy().into_owned()))
 }

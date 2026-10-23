@@ -38,7 +38,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | File history + blame | ⬜ (gix-blame) |
 | Side-by-side diff, syntax highlighting | ⬜ (tree-sitter feature) |
 | Undo / redo of operations | ✅ ref snapshots before/after every op; soft undo for commits, `reset --keep` otherwise |
-| Submodules, LFS, worktrees | ⬜ |
+| Submodules, LFS, worktrees | 🟡 worktrees ✅ (sidebar, create from branch/new, open in tab, remove); submodules & LFS todo |
 | Commit signing indicators | ⬜ |
 | Graph compaction for wide histories | ⬜ |
 | Packaging: signed .dmg, Windows, Linux, auto-update | ⬜ |
@@ -64,7 +64,7 @@ Ordered by how much a daily user misses them.
 | Search / filter graph | message, author, sha, file; highlight matches | ✅ (not by file yet) |
 | Left-panel filter | filter branches/remotes/tags as you type | ✅ |
 | Terminal: selection + copy, links, drag files in | xterm.js features | 🟡 selection (drag, word, line, ⇧-extend), ⌘C, ⌘A; no links/drag yet |
-| Worktrees | create/open/remove, WIP row per worktree, tab per worktree | ⬜ |
+| Worktrees | create/open/remove, WIP row per worktree, tab per worktree | ✅ (no WIP row per worktree yet) |
 | Undo / redo | reset, rebase, checkout, commit via reflog | ✅ |
 | File history + blame | history follows renames | ⬜ |
 | Split / inline / hunk diff views, syntax highlighting | | ⬜ |

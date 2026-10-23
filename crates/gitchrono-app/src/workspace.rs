@@ -2,7 +2,7 @@
 //! `views`, `diff_view` and `menus`.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -78,6 +78,8 @@ pub struct Prompt {
     pub suggest: Option<Suggest>,
     /// Keep the text as typed (and allow it empty) instead of treating it as a ref name.
     pub raw: bool,
+    /// Whether the operation goes on the undo stack.
+    pub record: bool,
     action: Option<Box<dyn FnOnce(String) -> (String, Op)>>,
     _subscription: Option<Subscription>,
 }
@@ -85,6 +87,10 @@ pub struct Prompt {
 pub enum WorkspaceEvent {
     /// The user asked to open another repository (handled by the tab shell).
     OpenRequested,
+    /// Open this repository or worktree in a tab.
+    OpenPath(PathBuf),
+    /// A linked worktree was removed; its tab should close.
+    WorktreeRemoved(PathBuf),
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -135,6 +141,8 @@ pub struct Workspace {
     pub terminal_index: usize,
     pub terminal_open: bool,
     pub search: Option<GraphSearch>,
+    /// Open the worktree that the next reload discovers (after "create worktree").
+    open_new_worktree: bool,
     pub undo_stack: Vec<UndoEntry>,
     pub redo_stack: Vec<UndoEntry>,
     pub sidebar_filter: Entity<InputState>,
@@ -190,6 +198,7 @@ impl Workspace {
             terminal_index: 0,
             terminal_open: false,
             search: None,
+            open_new_worktree: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             sidebar_filter,
@@ -291,6 +300,68 @@ impl Workspace {
             p.raw = true;
             p.suggest = Some(Suggest::StashMessage);
         }
+    }
+
+    // ------------------------------------------------------------ worktrees
+
+    /// `../<repo>-<branch>` next to the main working tree.
+    fn default_worktree_path(&self, branch: &str) -> String {
+        let main = self.snap.worktrees.iter().find(|w| w.main).map(|w| w.path.clone());
+        let root = main.or_else(|| self.repo.as_ref().map(|r| r.root().to_path_buf())).unwrap_or_default();
+        let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let parent = root.parent().map(Path::to_path_buf).unwrap_or_default();
+        parent.join(format!("{name}-{}", branch.replace('/', "-"))).to_string_lossy().into_owned()
+    }
+
+    /// Create a worktree for an existing local or remote branch.
+    pub fn prompt_worktree_for_branch(&mut self, branch: String, remote: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let local = if remote { branch.split_once('/').map_or(branch.clone(), |(_, b)| b.to_string()) } else { branch.clone() };
+        let default = self.default_worktree_path(&local);
+        let message = format!("Checks out {branch} in a separate folder, opened in a new tab.");
+        self.open_prompt(format!("Create worktree for {branch}"), Some(message), Some(&default), "Create worktree", false, window, cx, move |path| {
+            let op = move |r: &Repo| {
+                let path = PathBuf::from(&path);
+                if remote { r.add_worktree(&path, Some(&local), Some(&branch)) } else { r.add_worktree(&path, None, Some(&branch)) }
+            };
+            ("Creating worktree".into(), Box::new(op) as Op)
+        });
+        self.prepare_worktree_prompt();
+    }
+
+    /// Create a worktree on a new branch from HEAD.
+    pub fn prompt_new_worktree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let base = self.default_worktree_path("");
+        let message = format!("New branch from HEAD, checked out in {base}<branch>, opened in a new tab.");
+        self.open_prompt("Create worktree", Some(message), Some(""), "Create worktree", false, window, cx, move |name| {
+            let path = PathBuf::from(format!("{base}{}", name.replace('/', "-")));
+            ("Creating worktree".into(), Box::new(move |r: &Repo| r.add_worktree(&path, Some(&name), None)) as Op)
+        });
+        if let Some(p) = &mut self.prompt {
+            p.record = false;
+        }
+        self.open_new_worktree = true;
+    }
+
+    fn prepare_worktree_prompt(&mut self) {
+        if let Some(p) = &mut self.prompt {
+            p.raw = true;
+            // Undoing would delete a branch the new worktree has checked out.
+            p.record = false;
+        }
+        self.open_new_worktree = true;
+    }
+
+    pub fn remove_worktree(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let shown = crate::projects::short_path(&path);
+        self.confirm(
+            "Remove worktree",
+            format!("Remove the worktree at {shown}? Its branch is kept; uncommitted changes there block removal."),
+            "Remove",
+            "Removing worktree",
+            window,
+            cx,
+            move |r| r.remove_worktree(&path, false),
+        );
     }
 
     // ------------------------------------------------------------ search
@@ -436,6 +507,15 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 match result {
                     Ok((mut snap, graph)) => {
+                        for gone in this.snap.worktrees.iter().filter(|old| !snap.worktrees.iter().any(|w| w.path == old.path)) {
+                            cx.emit(WorkspaceEvent::WorktreeRemoved(gone.path.clone()));
+                        }
+                        if std::mem::take(&mut this.open_new_worktree) {
+                            let known: Vec<&PathBuf> = this.snap.worktrees.iter().map(|w| &w.path).collect();
+                            if let Some(new) = snap.worktrees.iter().find(|w| !known.contains(&&w.path)) {
+                                cx.emit(WorkspaceEvent::OpenPath(new.path.clone()));
+                            }
+                        }
                         this.status = std::mem::take(&mut snap.status);
                         this.snap = Arc::new(snap);
                         this.graph = Arc::new(graph);
@@ -746,6 +826,7 @@ impl Workspace {
             danger,
             suggest: None,
             raw: false,
+            record: true,
             action: Some(Box::new(action)),
             _subscription: subscription,
         });
@@ -785,7 +866,7 @@ impl Workspace {
         }
         if let Some(action) = prompt.action.take() {
             let (label, op) = action(text);
-            self.run(label, Change::Refs, cx, op);
+            self.run_inner(label, Change::Refs, prompt.record, cx, op, |_, _| {});
         }
         cx.notify();
     }

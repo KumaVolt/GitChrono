@@ -105,3 +105,20 @@ fn no_entry_without_ref_changes() {
     let state = repo.ref_state().unwrap();
     assert!(UndoEntry::new("Fetching", state.clone(), state, false).is_none());
 }
+
+#[test]
+fn worktree_add_list_remove() {
+    let (dir, repo) = repo("worktree");
+    let path = dir.with_file_name(format!("{}-wt", dir.file_name().unwrap().to_string_lossy()));
+    let _ = std::fs::remove_dir_all(&path);
+    repo.add_worktree(&path, Some("feature/wt"), None).unwrap();
+
+    let list = repo.worktrees().unwrap();
+    assert_eq!(list.len(), 2);
+    assert!(list[0].main && !list[1].main);
+    assert_eq!(list[1].branch.as_deref(), Some("feature/wt"));
+    assert_eq!(list[1].path.canonicalize().unwrap(), path.canonicalize().unwrap());
+
+    repo.remove_worktree(&path, false).unwrap();
+    assert_eq!(repo.worktrees().unwrap().len(), 1);
+}

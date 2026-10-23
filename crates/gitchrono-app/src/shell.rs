@@ -96,6 +96,13 @@ impl Shell {
         let view = cx.new(|cx| Workspace::new(Some(open), window, cx));
         let sub = cx.subscribe_in(&view, window, |this, _, event: &WorkspaceEvent, window, cx| match event {
             WorkspaceEvent::OpenRequested => this.prompt_open(window, cx),
+            WorkspaceEvent::OpenPath(path) => this.open_path(path.clone(), window, cx),
+            WorkspaceEvent::WorktreeRemoved(path) => {
+                let gone = path.canonicalize().unwrap_or_else(|_| path.clone());
+                if let Some(i) = this.tabs.iter().position(|t| matches!(t, Tab::Repo { path: p, .. } if *p == gone || *p == *path)) {
+                    this.close_tab(i, window, cx);
+                }
+            }
         });
         self.tabs.push(Tab::Repo { path, view, _sub: sub });
         self.tabs.len() - 1

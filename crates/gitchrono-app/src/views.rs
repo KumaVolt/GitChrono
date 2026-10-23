@@ -15,7 +15,7 @@ use crate::graph_paint::{self, Node, ROW_HEIGHT};
 use crate::menus;
 use crate::theme::{self, c};
 use crate::watcher::Change;
-use crate::workspace::{DiffSource, Selection, Workspace};
+use crate::workspace::{DiffSource, Selection, Workspace, WorkspaceEvent};
 
 pub fn relative_time(secs: i64) -> String {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(secs);
@@ -288,6 +288,41 @@ impl Workspace {
         col = col.child(section_header("Tags", refs.tags.len()));
         for t in refs.tags.iter().filter(|t| keep(&t.name)).take(300) {
             col = col.child(item(format!("t-{}", t.name).into(), t.name.clone(), String::new(), t.target.clone(), false, RefKind::Tag, 0, cx));
+        }
+        let worktrees = &self.snap.worktrees;
+        if worktrees.len() > 1 {
+            let root = self.repo.as_ref().map(|r| r.root().to_path_buf()).unwrap_or_default();
+            col = col.child(section_header("Worktrees", worktrees.len()));
+            for (i, wt) in worktrees.iter().enumerate() {
+                let name = crate::projects::display_name(&wt.path);
+                if !keep(&name) && !wt.branch.as_deref().is_some_and(|b| keep(b)) {
+                    continue;
+                }
+                let here = wt.path == root || wt.path.canonicalize().ok() == root.canonicalize().ok();
+                let branch = wt.branch.clone().unwrap_or_else(|| "detached".into());
+                let open = wt.path.clone();
+                let for_menu = wt.path.clone();
+                let removable = !wt.main && !here;
+                let ws = cx.entity().downgrade();
+                col = col.child(
+                    div()
+                        .id(("wt", i))
+                        .px_3()
+                        .py_0p5()
+                        .flex()
+                        .gap_1p5()
+                        .text_sm()
+                        .text_color(c(if here { theme::TEXT } else { theme::MUTED }))
+                        .when(here, |d| d.font_weight(FontWeight::BOLD))
+                        .hover(|s| s.bg(c(theme::HOVER)))
+                        .cursor_pointer()
+                        .child(div().w(px(12.)).flex_none().text_color(c(theme::ADD)).child(if here { "✓" } else { "" }))
+                        .child(div().truncate().child(name))
+                        .child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child(branch))
+                        .on_click(cx.listener(move |_, _, _, cx| cx.emit(WorkspaceEvent::OpenPath(open.clone()))))
+                        .context_menu(move |menu, _, _| menus::worktree_menu(menu, &ws, for_menu.clone(), removable)),
+                );
+            }
         }
         col = col.child(section_header("Stashes", refs.stashes.len()));
         for s in refs.stashes.iter().filter(|s| keep(&s.message)) {
