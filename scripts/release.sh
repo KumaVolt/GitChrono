@@ -11,7 +11,7 @@ version="${version#v}"
 
 sed -i.bak -E "/^\[workspace\.package\]/,/^\[/ s/^version = \".*\"/version = \"${version}\"/" Cargo.toml && rm Cargo.toml.bak
 cargo update --workspace --quiet
-git commit -qam "Release v${version}"
+git diff --quiet || git commit -qam "Release v${version}"
 git tag -a "v${version}" -m "GitChrono v${version}"
 echo "Tagged v${version}"
 
