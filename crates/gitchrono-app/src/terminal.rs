@@ -2,6 +2,8 @@
 //! paint its grid on a gpui canvas.
 
 use std::borrow::Cow;
+use std::cell::Cell;
+use std::rc::Rc;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -9,6 +11,8 @@ use std::sync::Arc;
 use alacritty_terminal::event::{Event as TermEvent, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point as GridPoint, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
@@ -49,6 +53,17 @@ impl EventListener for Listener {
     }
 }
 
+/// Where the last frame put the grid, for mapping mouse positions to cells.
+#[derive(Clone, Copy)]
+struct GridLayout {
+    origin: Point<Pixels>,
+    cell_width: Pixels,
+    line_height: Pixels,
+    cols: usize,
+    rows: usize,
+    display_offset: i32,
+}
+
 pub struct Terminal {
     term: Arc<FairMutex<Term<Listener>>>,
     sender: EventLoopSender,
@@ -57,6 +72,8 @@ pub struct Terminal {
     pub exited: bool,
     /// Fractional scroll-wheel lines carried between events.
     scroll_rest: f32,
+    layout: Rc<Cell<Option<GridLayout>>>,
+    selecting: bool,
     _events: Task<()>,
 }
 
@@ -119,6 +136,8 @@ impl Terminal {
             title: "Terminal".into(),
             exited: false,
             scroll_rest: 0.,
+            layout: Rc::new(Cell::new(None)),
+            selecting: false,
             _events: events,
         }
     }
@@ -155,7 +174,10 @@ impl Terminal {
 
     /// Send user input and jump back to the live screen.
     fn input(&self, bytes: impl Into<Cow<'static, [u8]>>) {
-        self.term.lock().scroll_display(Scroll::Bottom);
+        let mut term = self.term.lock();
+        term.scroll_display(Scroll::Bottom);
+        term.selection = None;
+        drop(term);
         self.write(bytes);
     }
 
@@ -179,6 +201,19 @@ impl Terminal {
                     }
                 }
                 "k" => self.input(&b"\x0c"[..]),
+                "c" => match self.term.lock().selection_to_string().filter(|t| !t.is_empty()) {
+                    Some(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+                    None => return,
+                },
+                "a" => {
+                    let mut term = self.term.lock();
+                    let top = GridPoint::new(Line(-(term.history_size() as i32)), Column(0));
+                    let bottom = GridPoint::new(Line(term.screen_lines() as i32 - 1), Column(term.columns() - 1));
+                    let mut selection = Selection::new(SelectionType::Simple, top, Side::Left);
+                    selection.update(bottom, Side::Right);
+                    term.selection = Some(selection);
+                    cx.notify();
+                }
                 // Let app shortcuts (⌘T, ⌘W…) through.
                 _ => return,
             }
@@ -190,6 +225,57 @@ impl Terminal {
             self.input(bytes);
             cx.stop_propagation();
         }
+    }
+
+    fn grid_point(&self, position: Point<Pixels>) -> Option<(GridPoint, Side)> {
+        let l = self.layout.get()?;
+        let x = f32::from(position.x - l.origin.x) / f32::from(l.cell_width);
+        let y = f32::from(position.y - l.origin.y) / f32::from(l.line_height);
+        let col = (x.max(0.) as usize).min(l.cols - 1);
+        let row = (y.max(0.) as usize).min(l.rows - 1) as i32;
+        let side = if x.fract() > 0.5 { Side::Right } else { Side::Left };
+        Some((GridPoint::new(Line(row - l.display_offset), Column(col)), side))
+    }
+
+    fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus.focus(window, cx);
+        let Some((point, side)) = self.grid_point(event.position) else { return };
+        let mut term = self.term.lock();
+        match (&mut term.selection, event.modifiers.shift) {
+            (Some(selection), true) => selection.update(point, side),
+            _ => {
+                let ty = match event.click_count {
+                    2 => SelectionType::Semantic,
+                    3.. => SelectionType::Lines,
+                    _ => SelectionType::Simple,
+                };
+                term.selection = Some(Selection::new(ty, point, side));
+            }
+        }
+        self.selecting = true;
+        cx.notify();
+    }
+
+    fn on_mouse_move(&mut self, event: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if !self.selecting || event.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
+        if let Some((point, side)) = self.grid_point(event.position) {
+            if let Some(selection) = &mut self.term.lock().selection {
+                selection.update(point, side);
+            }
+            cx.notify();
+        }
+    }
+
+    fn on_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.selecting = false;
+        let mut term = self.term.lock();
+        // A plain click (no drag) leaves an empty selection behind.
+        if term.selection.as_ref().is_some_and(|s| s.is_empty()) {
+            term.selection = None;
+        }
+        cx.notify();
     }
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -400,6 +486,7 @@ impl Render for Terminal {
         let sender = self.sender.clone();
         let entity = cx.entity();
         let focus = self.focus.clone();
+        let layout = self.layout.clone();
         let focused = self.focus.is_focused(window);
         div()
             .id("terminal")
@@ -413,15 +500,17 @@ impl Render for Terminal {
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_action(cx.listener(|this, _: &SendTab, _, _| this.input(&b"\t"[..])))
             .on_action(cx.listener(|this, _: &SendShiftTab, _, _| this.input(&b"\x1b[Z"[..])))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.focus.focus(window, cx)))
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .child(canvas(|_, _, _| {}, move |bounds, (), window, cx| {
                 window.handle_input(&focus, ElementInputHandler::new(bounds, entity), cx);
-                paint_grid(&term, &sender, bounds, focused, window, cx)
+                layout.set(Some(paint_grid(&term, &sender, bounds, focused, window, cx)))
             }).size_full())
     }
 }
 
-fn paint_grid(term: &FairMutex<Term<Listener>>, sender: &EventLoopSender, bounds: Bounds<Pixels>, focused: bool, window: &mut Window, cx: &mut App) {
+fn paint_grid(term: &FairMutex<Term<Listener>>, sender: &EventLoopSender, bounds: Bounds<Pixels>, focused: bool, window: &mut Window, cx: &mut App) -> GridLayout {
     let font_size = px(FONT_SIZE);
     let line_height = px((FONT_SIZE * LINE_HEIGHT).round());
     let font = font(FONT_FAMILY);
@@ -442,6 +531,9 @@ fn paint_grid(term: &FairMutex<Term<Listener>>, sender: &EventLoopSender, bounds
     let content = term.renderable_content();
     let offset = content.display_offset as i32;
     let show_cursor = content.mode.contains(TermMode::SHOW_CURSOR) && offset == 0;
+    let selection = content.selection;
+    let selection_bg: Hsla = theme::c(theme::SELECTED).into();
+    let layout = GridLayout { origin: bounds.origin, cell_width, line_height, cols, rows, display_offset: offset };
     let cursor = content.cursor.point;
     let colors = content.colors;
     let bg_default = theme::c(theme::BG).into();
@@ -461,6 +553,9 @@ fn paint_grid(term: &FairMutex<Term<Listener>>, sender: &EventLoopSender, bounds
         }
         if flags.contains(Flags::DIM) {
             fg = fg.opacity(0.7);
+        }
+        if selection.is_some_and(|sel| sel.contains(indexed.point)) {
+            bg = selection_bg;
         }
         if bg != bg_default {
             match backgrounds.last_mut() {
@@ -515,6 +610,7 @@ fn paint_grid(term: &FairMutex<Term<Listener>>, sender: &EventLoopSender, bounds
         let shaped = text_system.shape_line(text.into(), font_size, &runs, Some(cell_width));
         shaped.paint(point(bounds.origin.x, y), line_height, TextAlign::Left, None, window, cx).ok();
     }
+    layout
 }
 
 #[cfg(test)]

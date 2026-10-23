@@ -63,7 +63,7 @@ Ordered by how much a daily user misses them.
 | Command palette | ⌘P: run any action, "Open in" detected IDEs | ✅ (no "Open in" yet) |
 | Search / filter graph | message, author, sha, file; highlight matches | ✅ (not by file yet) |
 | Left-panel filter | filter branches/remotes/tags as you type | ✅ |
-| Terminal: selection + copy, links, drag files in | xterm.js features | ⬜ |
+| Terminal: selection + copy, links, drag files in | xterm.js features | 🟡 selection (drag, word, line, ⇧-extend), ⌘C, ⌘A; no links/drag yet |
 | Worktrees | create/open/remove, WIP row per worktree, tab per worktree | ⬜ |
 | Undo / redo | reset, rebase, checkout, commit via reflog | ⬜ |
 | File history + blame | history follows renames | ⬜ |
