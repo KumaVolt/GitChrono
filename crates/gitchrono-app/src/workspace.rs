@@ -143,6 +143,8 @@ pub struct Workspace {
     pub search: Option<GraphSearch>,
     /// Open the worktree that the next reload discovers (after "create worktree").
     open_new_worktree: bool,
+    pub file_history: Option<crate::history::FileHistory>,
+    pub blame: Option<crate::history::BlameView>,
     pub undo_stack: Vec<UndoEntry>,
     pub redo_stack: Vec<UndoEntry>,
     pub sidebar_filter: Entity<InputState>,
@@ -199,6 +201,8 @@ impl Workspace {
             terminal_open: false,
             search: None,
             open_new_worktree: false,
+            file_history: None,
+            blame: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             sidebar_filter,

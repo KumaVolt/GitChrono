@@ -2,6 +2,7 @@ mod ai;
 mod diff_view;
 mod fuzzy;
 mod graph_paint;
+mod history;
 mod menus;
 mod palette;
 mod projects;

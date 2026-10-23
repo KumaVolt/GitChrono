@@ -177,6 +177,16 @@ impl Shell {
             if let Some(next) = w.redo_stack.last() {
                 items.push(repo_action(&format!("Redo {}", next.label.to_lowercase()), |ws, _, cx| ws.redo(cx)).detail("⌘⇧Z"));
             }
+            let open_file = match w.diff.as_ref().map(|d| &d.source) {
+                Some(crate::workspace::DiffSource::Commit { path, .. }) => Some(path.clone()),
+                Some(crate::workspace::DiffSource::Workdir { change, .. }) => Some(change.path.clone()),
+                None => w.blame.as_ref().map(|b| b.path.clone()),
+            };
+            if let Some(path) = open_file {
+                let (h, b) = (path.clone(), path.clone());
+                items.push(repo_action(&format!("File history: {path}"), move |ws, _, cx| ws.show_file_history(h.clone(), cx)));
+                items.push(repo_action(&format!("Blame: {path}"), move |ws, _, cx| ws.show_blame(b.clone(), cx)));
+            }
             let root = w.repo.as_ref().map(|r| r.root().to_path_buf());
             for wt in w.snap.worktrees.iter().filter(|wt| Some(&wt.path) != root.as_ref()) {
                 let path = wt.path.clone();

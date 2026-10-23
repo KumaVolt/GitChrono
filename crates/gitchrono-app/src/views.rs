@@ -549,6 +549,11 @@ impl Workspace {
                         let source = DiffSource::Commit { id: commit_id.clone(), path: path.clone() };
                         this.show_diff(title.clone(), source, cx);
                     }))
+                    .context_menu({
+                        let ws = cx.entity().downgrade();
+                        let path = f.path.clone();
+                        move |menu, _, _| menus::commit_file_menu(menu, &ws, &path)
+                    })
             })))
     }
 
@@ -836,14 +841,19 @@ impl Render for Workspace {
             return root.child(self.render_welcome(cx));
         }
 
-        let center = match &self.diff {
-            Some(view) => self.render_diff(view, cx).into_any_element(),
-            None => self.render_graph(cx).into_any_element(),
+        let center = match (&self.blame, &self.diff) {
+            (Some(blame), _) => self.render_blame(blame, cx).into_any_element(),
+            (None, Some(view)) => self.render_diff(view, cx).into_any_element(),
+            (None, None) => self.render_graph(cx).into_any_element(),
         };
-        let right = match self.selection {
+        let right = if let Some(history) = &self.file_history {
+            Some(self.render_file_history(history, cx).into_any_element())
+        } else {
+            match self.selection {
             Selection::Wip => Some(self.render_staging(cx).into_any_element()),
-            Selection::Commit(_) => self.selected_commit().map(|commit| self.render_detail(commit, cx).into_any_element()),
-            Selection::None => None,
+                Selection::Commit(_) => self.selected_commit().map(|commit| self.render_detail(commit, cx).into_any_element()),
+                Selection::None => None,
+            }
         };
 
         root.on_action(cx.listener(|this, _: &crate::workspace::CloseSearch, _, cx| this.close_search(cx)))

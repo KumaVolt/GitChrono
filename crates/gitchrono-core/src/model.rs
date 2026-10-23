@@ -181,3 +181,24 @@ pub struct Worktree {
     pub locked: bool,
     pub prunable: bool,
 }
+
+/// One commit in a file's history, with the file's path at that commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileCommit {
+    pub id: String,
+    pub author_name: String,
+    pub time: i64,
+    pub summary: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlameLine {
+    pub id: String,
+    pub author_name: String,
+    pub time: i64,
+    pub summary: String,
+    /// Line number in the blamed revision (1-based).
+    pub line_no: usize,
+    pub text: String,
+}

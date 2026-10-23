@@ -211,7 +211,23 @@ pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) ->
         }))
     })
     .separator()
+    .when(change.status != FileStatus::Untracked && change.status != FileStatus::Added, |menu| {
+        history_items(menu, ws, &path)
+    })
     .item(copy_item("Copy path", ws, path))
+}
+
+fn history_items(menu: PopupMenu, ws: &Ws, path: &str) -> PopupMenu {
+    let h = path.to_string();
+    let b = path.to_string();
+    menu.item(item("File history", ws, move |this, _, cx| this.show_file_history(h.clone(), cx)))
+        .item(item("Blame", ws, move |this, _, cx| this.show_blame(b.clone(), cx)))
+        .separator()
+}
+
+/// Menu for a file in a commit's changed-file list.
+pub fn commit_file_menu(menu: PopupMenu, ws: &Ws, path: &str) -> PopupMenu {
+    history_items(menu, ws, path).item(copy_item("Copy path", ws, path.to_string()))
 }
 
 pub fn operation_name(op: Operation) -> &'static str {

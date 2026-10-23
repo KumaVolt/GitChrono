@@ -34,6 +34,76 @@ pub fn git(cwd: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+fn parse_file_history(out: &str, path: &str) -> Vec<FileCommit> {
+    let mut list = Vec::new();
+    for record in out.split('\x1e').filter(|r| !r.trim().is_empty()) {
+        let mut lines = record.lines();
+        let header: Vec<&str> = lines.next().unwrap_or_default().split('\0').collect();
+        if header.len() < 4 {
+            continue;
+        }
+        // `--name-status`: "M\tpath" or "R100\told\tnew"; the last field is the path here.
+        let file = lines
+            .filter(|l| !l.is_empty())
+            .find_map(|l| l.split('\t').next_back().map(str::to_string))
+            .unwrap_or_else(|| path.to_string());
+        list.push(FileCommit {
+            id: header[0].to_string(),
+            author_name: header[1].to_string(),
+            time: header[2].parse().unwrap_or(0),
+            summary: header[3].to_string(),
+            path: file,
+        });
+    }
+    list
+}
+
+fn parse_blame(out: &str) -> Vec<BlameLine> {
+    struct Info {
+        author: String,
+        time: i64,
+        summary: String,
+    }
+    let mut infos: std::collections::HashMap<String, Info> = std::collections::HashMap::new();
+    let mut lines = Vec::new();
+    let mut current: Option<(String, usize)> = None;
+    for line in out.lines() {
+        if let Some(text) = line.strip_prefix('\t') {
+            if let Some((id, line_no)) = current.take() {
+                let info = infos.get(&id);
+                lines.push(BlameLine {
+                    author_name: info.map(|i| i.author.clone()).unwrap_or_default(),
+                    time: info.map_or(0, |i| i.time),
+                    summary: info.map(|i| i.summary.clone()).unwrap_or_default(),
+                    id,
+                    line_no,
+                    text: text.to_string(),
+                });
+            }
+            continue;
+        }
+        let mut parts = line.split(' ');
+        let first = parts.next().unwrap_or_default();
+        if first.len() == 40 && first.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let _orig = parts.next();
+            let final_no = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            infos.entry(first.to_string()).or_insert(Info { author: String::new(), time: 0, summary: String::new() });
+            current = Some((first.to_string(), final_no));
+            continue;
+        }
+        let Some((id, _)) = &current else { continue };
+        let Some(info) = infos.get_mut(id) else { continue };
+        let rest = line.split_once(' ').map_or("", |(_, r)| r);
+        match first {
+            "author" => info.author = rest.to_string(),
+            "author-time" => info.time = rest.parse().unwrap_or(0),
+            "summary" => info.summary = rest.to_string(),
+            _ => {}
+        }
+    }
+    lines
+}
+
 fn parse_worktrees(out: &str) -> Vec<Worktree> {
     let mut list = Vec::new();
     for block in out.split("\n\n").filter(|b| !b.trim().is_empty()) {
@@ -208,6 +278,21 @@ impl Repo {
             out.push_str(&format!("diff --git a/{path} b/{path}\nnew file (untracked)\n"));
         }
         Ok(out)
+    }
+
+    /// Commits touching `path` (newest first), following renames.
+    pub fn file_history(&self, path: &str, limit: usize) -> Result<Vec<FileCommit>> {
+        let limit = format!("-{limit}");
+        let out = self.git(&["log", &limit, "--follow", "-M", "--format=%x1e%H%x00%an%x00%at%x00%s", "--name-status", "--", path])?;
+        Ok(parse_file_history(&out, path))
+    }
+
+    /// `git blame` of `path` at `rev` (the working tree when `None`).
+    pub fn blame(&self, path: &str, rev: Option<&str>) -> Result<Vec<BlameLine>> {
+        let mut args = vec!["blame", "--porcelain"];
+        args.extend(rev);
+        args.extend(["--", path]);
+        Ok(parse_blame(&self.git(&args)?))
     }
 
     pub fn worktrees(&self) -> Result<Vec<Worktree>> {
