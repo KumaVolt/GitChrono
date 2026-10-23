@@ -2174,7 +2174,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "gitchrono-ai"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "gitchrono-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -2206,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "gitchrono-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "gitchrono-graph",
@@ -2216,7 +2216,7 @@ dependencies = [
 
 [[package]]
 name = "gitchrono-graph"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "gix"
