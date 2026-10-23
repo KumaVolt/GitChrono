@@ -3,14 +3,78 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GitChrono — a fast, native Git client</title>
-  <meta name="description" content="GitChrono is a fast, native Git client written in Rust. A GitKraken-style commit graph, line-level staging and diffs, GPU-rendered. Free and open-core.">
-  <meta property="og:title" content="GitChrono — a fast, native Git client">
-  <meta property="og:description" content="Commit graph, line-level staging and diffs. Written in Rust, GPU-rendered, open-core.">
-  <meta property="og:image" content="https://gitchrono.com/assets/screenshot.png">
+  <title>GitChrono — Fast, native Git GUI for macOS, Windows &amp; Linux</title>
+  <meta name="description" content="GitChrono is a free, open-source Git GUI client written in Rust: a GitKraken-style commit graph, line-level staging, instant diffs and optional AI commit messages. For macOS, Windows and Linux.">
+  <meta name="keywords" content="git gui, git client, gitkraken alternative, git commit graph, rust git client, open source git gui, mac git client, linux git client, windows git client">
+  <link rel="canonical" href="https://gitchrono.com/">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="theme-color" content="#111318">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="GitChrono">
+  <meta property="og:title" content="GitChrono — Fast, native Git GUI">
+  <meta property="og:description" content="A GitKraken-style commit graph, line-level staging and instant diffs. Written in Rust, GPU-rendered, free and open source.">
+  <meta property="og:image" content="https://gitchrono.com/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="GitChrono commit graph with branches, tags and a commit detail panel">
   <meta property="og:url" content="https://gitchrono.com/">
+  <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <meta name="twitter:title" content="GitChrono — Fast, native Git GUI">
+  <meta name="twitter:description" content="A GitKraken-style commit graph, line-level staging and instant diffs. Written in Rust, free and open source.">
+  <meta name="twitter:image" content="https://gitchrono.com/assets/og.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "GitChrono",
+        "url": "https://gitchrono.com/",
+        "description": "A fast, native Git GUI client written in Rust with a commit graph, line-level staging and diffs.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux",
+        "softwareVersion": "0.1.0",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "downloadUrl": "https://github.com/KumaVolt/GitChrono/releases/latest",
+        "screenshot": "https://gitchrono.com/assets/screenshot.png",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "codeRepository": "https://github.com/KumaVolt/GitChrono"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "Is GitChrono free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The Git client is free and open source under the Apache-2.0 licence. Optional AI features work with your own API key, or with prepaid credits later." } },
+          { "@type": "Question", "name": "Is GitChrono a GitKraken alternative?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. GitChrono offers a GitKraken-style commit graph, staging panel, branch and stash management in a native Rust app instead of Electron." } },
+          { "@type": "Question", "name": "Which platforms does GitChrono support?", "acceptedAnswer": { "@type": "Answer", "text": "macOS (Apple Silicon and Intel), Windows 64-bit and Linux (x86_64 and ARM64)." } },
+          { "@type": "Question", "name": "Does GitChrono upload my code?", "acceptedAnswer": { "@type": "Answer", "text": "No. GitChrono works locally with your git installation. AI features only send a trimmed diff, with secrets redacted, to the provider you choose, and only when you click an AI button." } },
+          { "@type": "Question", "name": "Is GitChrono stable?", "acceptedAnswer": { "@type": "Answer", "text": "GitChrono is in alpha. Expect bugs and keep a pushed remote or backup of repositories you can't afford to lose." } }
+        ]
+      }
+    ]
+  }
+  </script>
+  <script>
+    // Google Analytics 4: loaded only after the visitor accepts (GDPR).
+    // Set GA_ID to the property's measurement ID (G-XXXXXXXXXX) to enable.
+    window.GA_ID = '';
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    window.track = function (name, params) { if (window.gaLoaded) gtag('event', name, params || {}); };
+    window.loadAnalytics = function () {
+      if (!window.GA_ID || window.gaLoaded) return;
+      window.gaLoaded = true;
+      const s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://www.googletagmanager.com/gtag/js?id=' + window.GA_ID;
+      document.head.appendChild(s);
+      gtag('js', new Date());
+      gtag('config', window.GA_ID, { anonymize_ip: true });
+    };
+    try { if (localStorage.getItem('consent') === 'granted') window.loadAnalytics(); } catch (e) {}
+  </script>
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -72,6 +136,9 @@
     .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 34px 0 14px; }
     .btn { display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 22px; border-radius: 12px; font-weight: 600; font-size: 15px; transition: transform .15s ease, background .15s ease, border-color .15s ease; }
     .btn:hover { transform: translateY(-1px); }
+    button.btn { font-family: inherit; cursor: pointer; border: 0; color: var(--text); height: 40px; }
+    button.btn-primary { color: #0d0f13; }
+    button.btn-ghost { border: 1px solid var(--border); }
     .btn svg { width: 18px; height: 18px; }
     .btn-primary { background: var(--text); color: #0d0f13; }
     .btn-primary:hover { background: #fff; }
@@ -147,6 +214,14 @@
       .grid, .downloads { grid-template-columns: repeat(2, 1fr); }
       .split, .oc { grid-template-columns: 1fr; }
     }
+    .faq { display: grid; gap: 10px; margin-top: 32px; max-width: 820px; }
+    .faq details { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; }
+    .faq summary { cursor: pointer; font-weight: 600; }
+    .faq p { color: var(--muted); margin: 10px 0 0; line-height: 1.6; }
+    .consent { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 50; max-width: 720px; margin: 0 auto; display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+    .consent[hidden] { display: none; }
+    .consent p { margin: 0; color: var(--muted); font-size: 14px; flex: 1 1 280px; }
+    .consent div { display: flex; gap: 8px; }
     @media (max-width: 600px) {
       .wrap { padding: 0 16px; }
       .code { font-size: 12px; }
@@ -194,7 +269,7 @@
       <div class="fine" id="hero-fine">macOS · Windows · Linux — free</div>
 
       <div class="shot">
-        <img src="assets/screenshot.png" width="2000" height="1296" alt="GitChrono showing a colorful commit graph with branches, tags and a commit detail panel">
+        <img src="assets/screenshot.png" width="2000" height="1296" fetchpriority="high" alt="GitChrono Git GUI showing a colorful commit graph with branches, tags and a commit detail panel">
       </div>
 
       <div class="stats">
@@ -312,7 +387,7 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
           </ul>
         </div>
         <div class="tier pro">
-          <h3>GitChrono AI <span class="badge">Coming soon</span></h3>
+          <h3>GitChrono AI <span class="badge">Own key: available · Credits: soon</span></h3>
           <div class="price">Pay as you go — or bring your own key</div>
           <ul>
             <li>AI commit messages, branch names and explanations</li>
@@ -326,6 +401,20 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
     </div>
   </section>
 
+  <section id="faq">
+    <div class="wrap">
+      <div class="kicker">FAQ</div>
+      <h2>Questions, answered.</h2>
+      <div class="faq">
+        <details><summary>Is GitChrono free?</summary><p>Yes. The Git client is free and open source under the Apache-2.0 licence. Optional AI features work with your own API key, or with prepaid credits later.</p></details>
+        <details><summary>Is GitChrono a GitKraken alternative?</summary><p>Yes. You get a GitKraken-style commit graph, staging panel and branch, tag and stash management, in a native Rust app instead of Electron.</p></details>
+        <details><summary>Which platforms are supported?</summary><p>macOS (Apple Silicon and Intel), Windows 64-bit and Linux (x86_64 and ARM64).</p></details>
+        <details><summary>Does GitChrono upload my code?</summary><p>No. It works locally with your own <code>git</code>. AI features only send a trimmed diff, with secrets redacted, to the provider you choose, and only when you click an AI button.</p></details>
+        <details><summary>Is it stable?</summary><p>GitChrono is in alpha: use it at your own risk. Keep a pushed remote or a backup of repositories you can't afford to lose.</p></details>
+      </div>
+    </div>
+  </section>
+
   <footer>
     <div class="wrap">
       <span>© <span id="year">2026</span> GitChrono</span>
@@ -333,9 +422,18 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
         <a href="https://github.com/KumaVolt/GitChrono">GitHub</a>
         <a href="https://github.com/KumaVolt/GitChrono/releases">Releases</a>
         <a href="https://github.com/KumaVolt/GitChrono/blob/main/docs/parity.md">Roadmap</a>
+        <a href="#" id="cookie-settings">Cookie settings</a>
       </div>
     </div>
   </footer>
+
+  <div class="consent" id="consent" hidden>
+    <p>We use Google Analytics cookies to see which pages and downloads are used. Nothing is loaded unless you accept.</p>
+    <div>
+      <button class="btn btn-ghost" id="consent-no">Decline</button>
+      <button class="btn btn-primary" id="consent-yes">Accept</button>
+    </div>
+  </div>
 
   <script>
     // Point the download buttons at the newest release's assets and
@@ -373,6 +471,33 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
           document.getElementById('release-meta').innerHTML =
             'First release coming soon — follow along on <a href="https://github.com/KumaVolt/GitChrono">GitHub</a>.';
         });
+
+      // Consent banner (only shown when analytics is configured).
+      const banner = document.getElementById('consent');
+      let choice = null;
+      try { choice = localStorage.getItem('consent'); } catch (e) {}
+      const decide = value => {
+        try { localStorage.setItem('consent', value); } catch (e) {}
+        banner.hidden = true;
+        if (value === 'granted') window.loadAnalytics();
+      };
+      if (window.GA_ID && !choice) banner.hidden = false;
+      document.getElementById('consent-yes').onclick = () => decide('granted');
+      document.getElementById('consent-no').onclick = () => decide('denied');
+      document.getElementById('cookie-settings').onclick = e => {
+        e.preventDefault();
+        if (window.GA_ID) banner.hidden = false;
+      };
+
+      // Events: downloads per platform, GitHub clicks, FAQ opens.
+      for (const card of cards) {
+        card.addEventListener('click', () => track('file_download', { platform: card.dataset.os, link_url: card.href }));
+      }
+      document.getElementById('hero-download').addEventListener('click', () => track('hero_download_click', { platform: os || 'unknown' }));
+      document.querySelectorAll('a[href^="https://github.com/KumaVolt/GitChrono"]').forEach(a =>
+        a.addEventListener('click', () => track('github_click', { link_url: a.href })));
+      document.querySelectorAll('.faq details').forEach(d =>
+        d.addEventListener('toggle', () => d.open && track('faq_open', { question: d.querySelector('summary').textContent })));
     })();
   </script>
 </body>
