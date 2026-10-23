@@ -147,6 +147,7 @@ pub struct Workspace {
     /// Open the worktree that the next reload discovers (after "create worktree").
     open_new_worktree: bool,
     pub rebase_editor: Option<crate::rebase_ui::RebaseEditor>,
+    pub conflict: Option<crate::conflict_ui::ConflictView>,
     /// Side-by-side instead of unified diffs.
     pub diff_split: bool,
     pub file_history: Option<crate::history::FileHistory>,
@@ -209,6 +210,7 @@ impl Workspace {
             search: None,
             open_new_worktree: false,
             rebase_editor: None,
+            conflict: None,
             diff_split: std::env::var_os("GITCHRONO_SPLIT").is_some(),
             file_history: None,
             blame: None,
@@ -617,7 +619,7 @@ impl Workspace {
         self.run_inner(label.into(), refresh, true, cx, op, |_, _| {});
     }
 
-    fn run_inner(
+    pub(crate) fn run_inner(
         &mut self,
         label: String,
         refresh: Change,
@@ -930,6 +932,11 @@ impl Workspace {
     fn debug_open_first_diff(&mut self, cx: &mut Context<Self>) {
         match self.selection {
             Selection::Wip => {
+                if let Some(conflicted) = self.status.conflicted.first() {
+                    let path = conflicted.path.clone();
+                    self.open_conflict(path, cx);
+                    return;
+                }
                 let st = &self.status;
                 let (change, staged) = match st.unstaged.iter().find(|c| c.status != FileStatus::Untracked) {
                     Some(c) => (c.clone(), false),

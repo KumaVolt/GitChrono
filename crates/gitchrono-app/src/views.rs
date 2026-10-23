@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gitchrono_core::{Commit, FileChange, Operation, RefKind, RefLabel};
+use gitchrono_core::{Commit, FileChange, FileStatus, Operation, RefKind, RefLabel};
 use gitchrono_graph::Row;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
@@ -594,7 +594,13 @@ impl Workspace {
                             }
                         })),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.show_workdir_diff(for_diff.clone(), staged, cx)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if for_diff.status == FileStatus::Conflicted {
+                        this.open_conflict(for_diff.path.clone(), cx);
+                    } else {
+                        this.show_workdir_diff(for_diff.clone(), staged, cx);
+                    }
+                }))
                 .context_menu(move |menu, _, _| menus::file_menu(menu, &ws, &for_menu, staged))
         }))
     }
@@ -841,10 +847,11 @@ impl Render for Workspace {
             return root.child(self.render_welcome(cx));
         }
 
-        let center = match (&self.blame, &self.diff) {
-            (Some(blame), _) => self.render_blame(blame, cx).into_any_element(),
-            (None, Some(view)) => self.render_diff(view, cx).into_any_element(),
-            (None, None) => self.render_graph(cx).into_any_element(),
+        let center = match (&self.conflict, &self.blame, &self.diff) {
+            (Some(conflict), _, _) => self.render_conflict(conflict, cx).into_any_element(),
+            (None, Some(blame), _) => self.render_blame(blame, cx).into_any_element(),
+            (None, None, Some(view)) => self.render_diff(view, cx).into_any_element(),
+            (None, None, None) => self.render_graph(cx).into_any_element(),
         };
         let right = if let Some(history) = &self.file_history {
             Some(self.render_file_history(history, cx).into_any_element())

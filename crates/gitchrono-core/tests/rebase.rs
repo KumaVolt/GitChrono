@@ -48,3 +48,39 @@ fn reorder_reword_squash_drop() {
     let squash_first = vec![gitchrono_core::RebaseStep { action: RebaseAction::Squash, ..repo.rebase_plan(&base).unwrap()[0].clone() }];
     assert!(repo.interactive_rebase(&base, &squash_first).is_err());
 }
+
+#[test]
+fn resolve_a_merge_conflict() {
+    use gitchrono_core::Resolution;
+    let dir = std::env::temp_dir().join(format!("gitchrono-conflict-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["config", "user.name", "T"],
+        &["config", "user.email", "t@example.com"],
+        &["config", "commit.gpgsign", "false"],
+        &["config", "core.autocrlf", "false"],
+    ] {
+        git(&dir, args).unwrap();
+    }
+    std::fs::write(dir.join("f.txt"), "top\nmiddle\nbottom\n").unwrap();
+    git(&dir, &["add", "."]).unwrap();
+    git(&dir, &["commit", "-qm", "base"]).unwrap();
+    git(&dir, &["checkout", "-qb", "feature"]).unwrap();
+    std::fs::write(dir.join("f.txt"), "top\nfeature middle\nbottom\n").unwrap();
+    git(&dir, &["commit", "-qam", "feature"]).unwrap();
+    git(&dir, &["checkout", "-q", "main"]).unwrap();
+    std::fs::write(dir.join("f.txt"), "top\nmain middle\nbottom\n").unwrap();
+    git(&dir, &["commit", "-qam", "main"]).unwrap();
+    let repo = Repo::open(&dir).unwrap();
+    assert!(repo.merge("feature").is_err(), "merge conflicts");
+
+    let file = repo.conflict_file("f.txt").unwrap();
+    assert_eq!(file.conflict_count(), 1);
+    assert!(!repo.save_resolution(&file, &[None]).unwrap(), "still unresolved");
+    let file = repo.conflict_file("f.txt").unwrap();
+    assert!(repo.save_resolution(&file, &[Some(Resolution::TheirsThenOurs)]).unwrap());
+    assert_eq!(std::fs::read_to_string(dir.join("f.txt")).unwrap(), "top\nfeature middle\nmain middle\nbottom\n");
+    assert!(repo.status().unwrap().conflicted.is_empty());
+}

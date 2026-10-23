@@ -32,7 +32,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 ## Tier 2 — Solid
 | Feature | Status |
 |---|---|
-| 3-way merge conflict editor | ⬜ (gpui-component has a diff/conflict widget) |
+| Merge conflict editor | ✅ ours / theirs / both per conflict, whole-file take ours/theirs, save & mark resolved |
 | Drag-and-drop branch → merge/rebase | ⬜ |
 | Interactive rebase (reorder/squash/edit) | ✅ pick, reword, squash, fixup, drop, reorder; undoable |
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
@@ -68,7 +68,7 @@ Ordered by how much a daily user misses them.
 | Undo / redo | reset, rebase, checkout, commit via reflog | ✅ |
 | File history + blame | history follows renames | ✅ |
 | Split / inline / hunk diff views, syntax highlighting | | ✅ |
-| Merge conflict tool | 3-way, AI-assisted resolution | ⬜ |
+| Merge conflict tool | 3-way, AI-assisted resolution | ✅ (AI suggestions later) |
 | Interactive rebase editor | reorder, squash, reword, drop | ✅ |
 | Drag a branch onto another | merge / rebase / PR | ⬜ |
 | Select several commits | combined diff, patch, cherry-pick range | ⬜ |

@@ -4,12 +4,14 @@
 //! gitoxide; writes and porcelain-exact reads shell out to `git` (see `cli`).
 
 mod cli;
+mod conflict;
 mod diff;
 mod model;
 mod rebase;
 mod repo;
 mod undo;
 
+pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};
 pub use cli::{GitError, ResetMode, git};
 pub use diff::{ApplyMode, parse_patch, partial_patch};
 pub use model::*;

@@ -205,6 +205,19 @@ pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) ->
             this.run("Staging", Change::Status, cx, move |r| r.stage(&[&path]));
         }
     }))
+    .when(change.status == FileStatus::Conflicted, |menu| {
+        let (o, t, e) = (path.clone(), path.clone(), path.clone());
+        menu.item(item("Resolve in editor", ws, move |this, _, cx| this.open_conflict(e.clone(), cx)))
+            .item(item("Take ours (whole file)", ws, move |this, _, cx| {
+                let p = o.clone();
+                this.run("Taking ours", Change::Status, cx, move |r| r.resolve_whole_file(&p, true))
+            }))
+            .item(item("Take theirs (whole file)", ws, move |this, _, cx| {
+                let p = t.clone();
+                this.run("Taking theirs", Change::Status, cx, move |r| r.resolve_whole_file(&p, false))
+            }))
+            .separator()
+    })
     .when(!staged && change.status != FileStatus::Conflicted, |menu| {
         menu.item(item("Discard changes…", ws, move |this, window, cx| {
             let change = c2.clone();

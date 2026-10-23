@@ -1,4 +1,5 @@
 mod ai;
+mod conflict_ui;
 mod diff_view;
 mod fuzzy;
 mod graph_paint;
