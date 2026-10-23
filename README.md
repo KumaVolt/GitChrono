@@ -3,6 +3,11 @@
 A fast, native Git client in the spirit of GitKraken — 100% Rust, GPU-rendered with
 [gpui](https://gpui-kit.com).
 
+> [!WARNING]
+> **GitChrono is in alpha. Use at your own risk.** Expect bugs and breaking changes.
+> It runs real git commands (reset, rebase, discard, force-push) on your repositories,
+> so keep backups or a pushed remote of anything you can't afford to lose.
+
 ```bash
 cargo run -p gitchrono-app -- /path/to/repo     # or open one from the welcome screen
 ```
