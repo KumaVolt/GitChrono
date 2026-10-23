@@ -112,6 +112,28 @@ impl Workspace {
                     )
                     .child(div().text_sm().font_weight(FontWeight::BOLD).child(branch)),
             )
+            .when(self.repo.is_some(), |bar| {
+                let undo = self.undo_stack.last().map(|e| e.label.clone());
+                let redo = self.redo_stack.last().map(|e| e.label.clone());
+                bar.child(
+                    Button::new("undo")
+                        .label("↶")
+                        .ghost()
+                        .small()
+                        .tooltip(undo.clone().map_or("Nothing to undo".to_string(), |l| format!("Undo {} (⌘Z)", l.to_lowercase())))
+                        .disabled(undo.is_none() || busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
+                )
+                .child(
+                    Button::new("redo")
+                        .label("↷")
+                        .ghost()
+                        .small()
+                        .tooltip(redo.clone().map_or("Nothing to redo".to_string(), |l| format!("Redo {} (⌘⇧Z)", l.to_lowercase())))
+                        .disabled(redo.is_none() || busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.redo(cx))),
+                )
+            })
             .child(Button::new("open").label("Open").ghost().small().on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))))
             .when(self.repo.is_some(), |bar| {
                 bar.child(tool("fetch", "Fetch".into()).on_click(cx.listener(|this, _, _, cx| {
@@ -287,7 +309,7 @@ impl Workspace {
             .border_b_1()
             .border_color(c(theme::BORDER))
             .child(div().w(px(170.)).px_3().child("BRANCH / TAG"))
-            .child(div().w(gutter).px_2().child("GRAPH"))
+            .child(div().w(gutter).flex_none().px_2().overflow_hidden().whitespace_nowrap().child("GRAPH"))
             .child(div().flex_1().px_2().child("COMMIT MESSAGE"))
             .child(div().w(px(150.)).px_2().child("AUTHOR"))
             .child(div().w(px(110.)).px_2().child("DATE"));

@@ -47,7 +47,7 @@ fn status_from_xy(c: u8) -> Option<FileStatus> {
 }
 
 impl Repo {
-    fn git(&self, args: &[&str]) -> Result<String> {
+    pub(crate) fn git(&self, args: &[&str]) -> Result<String> {
         git(self.root(), args)
     }
 

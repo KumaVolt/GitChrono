@@ -14,7 +14,7 @@ use crate::projects::{self, Session};
 use crate::theme::{self, c};
 use crate::workspace::{Workspace, WorkspaceEvent};
 
-actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal, OpenPalette, FindCommits]);
+actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal, OpenPalette, FindCommits, Undo, Redo]);
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -31,6 +31,9 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-shift-p", OpenPalette, None),
         KeyBinding::new("secondary-k", OpenPalette, None),
         KeyBinding::new("secondary-f", FindCommits, None),
+        KeyBinding::new("secondary-z", Undo, None),
+        KeyBinding::new("secondary-shift-z", Redo, None),
+        KeyBinding::new("ctrl-y", Redo, None),
     ]);
 }
 
@@ -457,6 +460,16 @@ impl Render for Shell {
             .on_action(cx.listener(|this, _: &ToggleTerminal, window, cx| {
                 if let Some(Tab::Repo { view, .. }) = this.tabs.get(this.active) {
                     view.update(cx, |w, cx| w.toggle_terminal(window, cx));
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Undo, _, cx| {
+                if let Some(ws) = this.active_workspace().cloned() {
+                    ws.update(cx, |w, cx| w.undo(cx));
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Redo, _, cx| {
+                if let Some(ws) = this.active_workspace().cloned() {
+                    ws.update(cx, |w, cx| w.redo(cx));
                 }
             }))
             .on_action(cx.listener(|this, _: &OpenPalette, window, cx| this.open_palette(window, cx)))

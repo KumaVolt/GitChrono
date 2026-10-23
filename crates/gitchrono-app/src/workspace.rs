@@ -12,7 +12,7 @@ const DEBOUNCE: Duration = Duration::from_millis(400);
 const RELOAD_COOLDOWN: Duration = Duration::from_secs(2);
 
 use anyhow::Result;
-use gitchrono_core::{ApplyMode, Commit, FileChange, FileDiff, FileStatus, Repo, Snapshot, Status};
+use gitchrono_core::{ApplyMode, Commit, FileChange, FileDiff, FileStatus, Repo, Snapshot, Status, UndoEntry};
 use gitchrono_graph::Graph;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
@@ -21,6 +21,7 @@ use crate::terminal::Terminal;
 use crate::watcher::{self, Change};
 
 const LOG_LIMIT: usize = 50_000;
+const UNDO_LIMIT: usize = 50;
 
 actions!(workspace, [CloseSearch]);
 
@@ -134,6 +135,8 @@ pub struct Workspace {
     pub terminal_index: usize,
     pub terminal_open: bool,
     pub search: Option<GraphSearch>,
+    pub undo_stack: Vec<UndoEntry>,
+    pub redo_stack: Vec<UndoEntry>,
     pub sidebar_filter: Entity<InputState>,
     _sidebar_filter_sub: Subscription,
     _activation: Subscription,
@@ -187,6 +190,8 @@ impl Workspace {
             terminal_index: 0,
             terminal_open: false,
             search: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             sidebar_filter,
             _sidebar_filter_sub: sidebar_filter_sub,
             _activation: activation,
@@ -500,7 +505,8 @@ impl Workspace {
         }));
     }
 
-    /// Run a git operation in the background, then refresh.
+    /// Run a git operation in the background, then refresh. Operations that
+    /// move local refs become undoable.
     pub fn run(
         &mut self,
         label: impl Into<String>,
@@ -508,21 +514,55 @@ impl Workspace {
         cx: &mut Context<Self>,
         op: impl FnOnce(&Repo) -> Result<()> + Send + 'static,
     ) {
+        self.run_inner(label.into(), refresh, true, cx, op, |_, _| {});
+    }
+
+    fn run_inner(
+        &mut self,
+        label: String,
+        refresh: Change,
+        record: bool,
+        cx: &mut Context<Self>,
+        op: impl FnOnce(&Repo) -> Result<()> + Send + 'static,
+        done: impl FnOnce(&mut Self, bool) + 'static,
+    ) {
         let Some(repo) = self.repo.clone() else { return };
         if self.busy.is_some() {
             return;
         }
-        self.busy = Some(format!("{}…", label.into()).into());
+        self.busy = Some(format!("{label}…").into());
         self.error = None;
         cx.notify();
-        let task = cx.background_spawn(async move { op(&repo) });
+        let soft = label == "Committing";
+        let task = cx.background_spawn(async move {
+            let before = if record { repo.ref_state().ok() } else { None };
+            let result = op(&repo);
+            // Half-finished merges/rebases aren't a state worth returning to.
+            let settled = || repo.status().is_ok_and(|s| s.operation == gitchrono_core::Operation::None);
+            let entry = match (&result, before) {
+                (Ok(()), Some(before)) if settled() => {
+                    repo.ref_state().ok().and_then(|after| UndoEntry::new(&label, before, after, soft))
+                }
+                _ => None,
+            };
+            (result, entry)
+        });
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let (result, entry) = task.await;
             this.update(cx, |this, cx| {
                 this.busy = None;
+                let ok = result.is_ok();
                 if let Err(e) = result {
                     this.error = Some(format!("{e:#}").into());
                 }
+                if let Some(entry) = entry {
+                    this.undo_stack.push(entry);
+                    if this.undo_stack.len() > UNDO_LIMIT {
+                        this.undo_stack.remove(0);
+                    }
+                    this.redo_stack.clear();
+                }
+                done(this, ok);
                 // Our own refresh covers whatever the watcher saw meanwhile.
                 let refresh = this.pending.take().map_or(refresh, |p| p.max(refresh));
                 this.apply_change(refresh, cx);
@@ -530,6 +570,24 @@ impl Workspace {
             .ok();
         })
         .detach();
+    }
+
+    pub fn undo(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.undo_stack.pop() else { return };
+        let label = format!("Undoing {}", entry.label.to_lowercase());
+        let back = entry.clone();
+        self.run_inner(label, Change::Refs, false, cx, move |r| r.undo(&back), move |this, ok| {
+            if ok { this.redo_stack.push(entry) } else { this.undo_stack.push(entry) }
+        });
+    }
+
+    pub fn redo(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.redo_stack.pop() else { return };
+        let label = format!("Redoing {}", entry.label.to_lowercase());
+        let forward = entry.clone();
+        self.run_inner(label, Change::Refs, false, cx, move |r| r.redo(&forward), move |this, ok| {
+            if ok { this.undo_stack.push(entry) } else { this.redo_stack.push(entry) }
+        });
     }
 
     pub fn select_row(&mut self, row: usize, cx: &mut Context<Self>) {

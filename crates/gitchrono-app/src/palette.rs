@@ -170,6 +170,12 @@ impl Shell {
                 repo_action("Show changes (WIP)", |ws, _, cx| ws.select_wip(cx)),
                 repo_action("Refresh", |ws, _, cx| ws.reload(cx)),
             ]);
+            if let Some(last) = w.undo_stack.last() {
+                items.push(repo_action(&format!("Undo {}", last.label.to_lowercase()), |ws, _, cx| ws.undo(cx)).detail("⌘Z"));
+            }
+            if let Some(next) = w.redo_stack.last() {
+                items.push(repo_action(&format!("Redo {}", next.label.to_lowercase()), |ws, _, cx| ws.redo(cx)).detail("⌘⇧Z"));
+            }
             let current = w.status.branch.clone();
             for b in &w.snap.refs.local {
                 if Some(&b.name) == current.as_ref() {
