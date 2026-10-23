@@ -168,7 +168,7 @@ impl Terminal {
         }
     }
 
-    fn write(&self, bytes: impl Into<Cow<'static, [u8]>>) {
+    pub(crate) fn write(&self, bytes: impl Into<Cow<'static, [u8]>>) {
         self.sender.send(Msg::Input(bytes.into())).ok();
     }
 

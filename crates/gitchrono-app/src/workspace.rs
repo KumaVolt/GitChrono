@@ -128,6 +128,8 @@ pub struct Workspace {
     pub(crate) ai_task: Option<Task<()>>,
     /// `GITCHRONO_SELECT=<row>[:diff]`, applied once after the first load (for headless screenshots).
     debug_select: Option<(usize, bool)>,
+    /// `GITCHRONO_TERMINAL=<command>`: open the terminal and run it after the first load (screenshots).
+    debug_terminal: Option<String>,
     load_task: Option<Task<()>>,
     status_task: Option<Task<()>>,
     _watcher: Option<(notify::RecommendedWatcher, Task<()>)>,
@@ -190,6 +192,7 @@ impl Workspace {
                 let (row, diff) = v.split_once(':').map_or((v.as_str(), false), |(r, _)| (r, true));
                 Some((row.parse().ok()?, diff))
             }),
+            debug_terminal: std::env::var("GITCHRONO_TERMINAL").ok(),
             load_task: None,
             status_task: None,
             _watcher: None,
@@ -535,6 +538,9 @@ impl Workspace {
                         };
                         if let Selection::Commit(i) = this.selection {
                             this.load_commit_files(i, cx);
+                        }
+                        if let Some(command) = this.debug_terminal.take() {
+                            this.debug_run_in_terminal(command, cx);
                         }
                         if let Some((row, diff)) = this.debug_select.take() {
                             this.select_row(row, cx);
@@ -883,6 +889,22 @@ impl Workspace {
     /// Lower-cased filter text for the sidebar, if any.
     pub fn ref_filter(&self, cx: &App) -> String {
         self.sidebar_filter.read(cx).value().trim().to_lowercase()
+    }
+
+    fn debug_run_in_terminal(&mut self, command: String, cx: &mut Context<Self>) {
+        let Some(root) = self.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
+        let Ok(spawned) = Terminal::spawn(&root) else { return };
+        let terminal = cx.new(|cx| Terminal::new(spawned, cx));
+        // Give the shell a moment to start before typing.
+        let t = terminal.clone();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(Duration::from_millis(1200)).await;
+            t.update(cx, |t, _| t.write(format!("{command}\r").into_bytes()));
+        })
+        .detach();
+        self.terminals.push(terminal);
+        self.terminal_index = self.terminals.len() - 1;
+        self.terminal_open = true;
     }
 
     fn debug_open_first_diff(&mut self, cx: &mut Context<Self>) {
