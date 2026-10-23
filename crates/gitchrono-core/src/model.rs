@@ -147,17 +147,23 @@ pub struct DiffLine {
     pub content: String,
     pub old_no: Option<u32>,
     pub new_no: Option<u32>,
+    /// Followed by `\ No newline at end of file` in the patch.
+    pub no_eol: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct Hunk {
     pub header: String,
+    pub old_start: u32,
+    pub new_start: u32,
     pub lines: Vec<DiffLine>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct FileDiff {
     pub path: String,
+    /// Raw patch lines before the first hunk (`diff --git`, modes, `---`/`+++`).
+    pub header: String,
     pub binary: bool,
     pub hunks: Vec<Hunk>,
     pub additions: usize,

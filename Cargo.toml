@@ -16,6 +16,7 @@ gpui-kit = "0.8"
 anyhow = "1"
 thiserror = "2"
 smol = "2"
+notify = "8"
 
 [profile.dev.package."*"]
 opt-level = 2

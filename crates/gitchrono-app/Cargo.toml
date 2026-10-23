@@ -13,3 +13,5 @@ gitchrono-core.workspace = true
 gitchrono-graph.workspace = true
 gpui-kit.workspace = true
 anyhow.workspace = true
+notify.workspace = true
+smol.workspace = true

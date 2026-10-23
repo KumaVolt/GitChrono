@@ -84,7 +84,8 @@ impl Repo {
                 out.tags.push(Tag { name: name.to_string(), target });
             }
         }
-        out.tags.sort_by(|a, b| b.name.cmp(&a.name));
+        // Newest version first: v2.53.0 before v2.9.5.
+        out.tags.sort_by(|a, b| natural_cmp(&b.name, &a.name));
         Ok(out)
     }
 
@@ -207,5 +208,47 @@ impl Repo {
             })?;
         files.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(files)
+    }
+}
+
+/// Compare strings treating digit runs as numbers (`v2.10` > `v2.9`).
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (mut a, mut b) = (a.as_bytes(), b.as_bytes());
+    loop {
+        match (a.first(), b.first()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (None, _) => return std::cmp::Ordering::Less,
+            (_, None) => return std::cmp::Ordering::Greater,
+            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let na = a.iter().take_while(|c| c.is_ascii_digit()).count();
+                let nb = b.iter().take_while(|c| c.is_ascii_digit()).count();
+                let (da, db) = (&a[..na], &b[..nb]);
+                let strip = |d: &[u8]| -> usize { d.iter().take_while(|c| **c == b'0').count() };
+                let (ta, tb) = (&da[strip(da)..], &db[strip(db)..]);
+                let ord = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+                a = &a[na..];
+                b = &b[nb..];
+            }
+            (Some(x), Some(y)) => {
+                if x != y {
+                    return x.cmp(y);
+                }
+                a = &a[1..];
+                b = &b[1..];
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn natural_sort_orders_versions() {
+        let mut tags = vec!["v2.9.5", "v2.53.0", "v2.10.0-rc1", "v2.10.0"];
+        tags.sort_by(|a, b| super::natural_cmp(b, a));
+        assert_eq!(tags, ["v2.53.0", "v2.10.0-rc1", "v2.10.0", "v2.9.5"]);
     }
 }

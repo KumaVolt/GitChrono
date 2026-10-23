@@ -9,7 +9,7 @@ mod model;
 mod repo;
 
 pub use cli::{GitError, ResetMode, git};
-pub use diff::parse_patch;
+pub use diff::{ApplyMode, parse_patch, partial_patch};
 pub use model::*;
 pub use repo::Repo;
 

@@ -2053,6 +2053,8 @@ dependencies = [
  "gitchrono-core",
  "gitchrono-graph",
  "gpui-kit",
+ "notify",
+ "smol",
 ]
 
 [[package]]

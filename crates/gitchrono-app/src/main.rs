@@ -1,5 +1,9 @@
+mod diff_view;
 mod graph_paint;
+mod menus;
 mod theme;
+mod views;
+mod watcher;
 mod workspace;
 
 use gpui_kit::component::theme::{Theme, ThemeMode};

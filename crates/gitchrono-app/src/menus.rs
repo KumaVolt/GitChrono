@@ -1,0 +1,213 @@
+//! Right-click menus for commits, refs and files.
+
+use gitchrono_core::{FileChange, FileStatus, Operation, RefKind, ResetMode};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::prelude::*;
+use gpui_kit::*;
+
+use crate::watcher::Change;
+use crate::workspace::{Op, Workspace};
+
+type Ws = WeakEntity<Workspace>;
+
+fn item(
+    label: impl Into<SharedString>,
+    ws: &Ws,
+    f: impl Fn(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
+) -> PopupMenuItem {
+    let ws = ws.clone();
+    PopupMenuItem::new(label).on_click(move |_, window, cx| {
+        ws.update(cx, |this, cx| f(this, window, cx)).ok();
+    })
+}
+
+/// Item that runs a git operation built from cloned `arg`.
+fn op_item(
+    label: impl Into<SharedString>,
+    busy: &'static str,
+    refresh: Change,
+    ws: &Ws,
+    arg: String,
+    op: fn(&gitchrono_core::Repo, &str) -> anyhow::Result<()>,
+) -> PopupMenuItem {
+    item(label, ws, move |this, _, cx| {
+        let arg = arg.clone();
+        this.run(busy, refresh, cx, move |r| op(r, &arg));
+    })
+}
+
+fn copy_item(label: &str, ws: &Ws, text: String) -> PopupMenuItem {
+    item(label.to_string(), ws, move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone())))
+}
+
+pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) -> PopupMenu {
+    let short = id[..7].to_string();
+    let id = id.to_string();
+    let target = current.unwrap_or("HEAD").to_string();
+    let reset = |mode: ResetMode, label: &str| {
+        let id = id.clone();
+        let target = target.clone();
+        let short = short.clone();
+        item(label.to_string(), ws, move |this, window, cx| {
+            let id = id.clone();
+            match mode {
+                ResetMode::Hard => this.confirm(
+                    "Hard reset",
+                    format!("Reset {target} to {short} and throw away all uncommitted changes?"),
+                    "Reset",
+                    "Resetting",
+                    window,
+                    cx,
+                    move |r| r.reset(&id, mode),
+                ),
+                _ => this.run("Resetting", Change::Refs, cx, move |r| r.reset(&id, mode)),
+            }
+        })
+    };
+
+    menu.item(op_item(format!("Checkout {short}"), "Checking out", Change::Refs, ws, id.clone(), |r, id| r.checkout(id)))
+        .item({
+            let id = id.clone();
+            item("Create branch here…", ws, move |this, window, cx| {
+                let id = id.clone();
+                this.open_prompt("Create branch", None, Some(""), "Create & checkout", false, window, cx, move |name| {
+                    ("Creating branch".into(), Box::new(move |r: &gitchrono_core::Repo| r.create_branch(&name, Some(&id), true)) as Op)
+                });
+            })
+        })
+        .item({
+            let id = id.clone();
+            item("Create tag here…", ws, move |this, window, cx| {
+                let id = id.clone();
+                this.open_prompt("Create tag", None, Some(""), "Create tag", false, window, cx, move |name| {
+                    ("Creating tag".into(), Box::new(move |r: &gitchrono_core::Repo| r.create_tag(&name, &id)) as Op)
+                });
+            })
+        })
+        .separator()
+        .item(op_item("Cherry-pick commit", "Cherry-picking", Change::Refs, ws, id.clone(), |r, id| r.cherry_pick(id)))
+        .item(op_item("Revert commit", "Reverting", Change::Refs, ws, id.clone(), |r, id| r.revert(id)))
+        .separator()
+        .item(reset(ResetMode::Soft, &format!("Reset {target} here — soft")))
+        .item(reset(ResetMode::Mixed, &format!("Reset {target} here — mixed")))
+        .item(reset(ResetMode::Hard, &format!("Reset {target} here — hard…")))
+        .separator()
+        .item(copy_item("Copy commit SHA", ws, id.clone()))
+}
+
+pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Option<&str>, index: usize) -> PopupMenu {
+    let name = name.to_string();
+    let cur = current.unwrap_or("HEAD").to_string();
+    match kind {
+        RefKind::Local | RefKind::Head => {
+            let is_current = current == Some(name.as_str());
+            let mut menu = menu;
+            if !is_current {
+                menu = menu
+                    .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout(n)))
+                    .item(op_item(format!("Merge {name} into {cur}"), "Merging", Change::Refs, ws, name.clone(), |r, n| r.merge(n)))
+                    .item(op_item(format!("Rebase {cur} onto {name}"), "Rebasing", Change::Refs, ws, name.clone(), |r, n| r.rebase(n)))
+                    .separator();
+            } else {
+                menu = menu
+                    .item(item("Push", ws, |this, _, cx| this.run("Pushing", Change::Refs, cx, |r| r.push(false))))
+                    .item(item("Force push (with lease)…", ws, |this, window, cx| {
+                        this.confirm("Force push", "Overwrite the remote branch with your local history?".into(), "Force push", "Pushing", window, cx, |r| r.push(true));
+                    }))
+                    .item(item("Pull", ws, |this, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(false))))
+                    .separator();
+            }
+            menu.item({
+                let name = name.clone();
+                item("Rename…", ws, move |this, window, cx| {
+                    let old = name.clone();
+                    this.open_prompt(format!("Rename {old}"), None, Some(&old.clone()), "Rename", false, window, cx, move |new| {
+                        ("Renaming".into(), Box::new(move |r: &gitchrono_core::Repo| r.rename_branch(&old, &new)) as Op)
+                    });
+                })
+            })
+            .when(!is_current, |menu| {
+                let name = name.clone();
+                menu.item(item(format!("Delete {name}…"), ws, move |this, window, cx| {
+                    let n = name.clone();
+                    this.confirm("Delete branch", format!("Delete local branch {n}? Unmerged commits need a force delete."), "Delete", "Deleting", window, cx, move |r| {
+                        r.delete_branch(&n, false)
+                    });
+                }))
+            })
+            .separator()
+            .item(copy_item("Copy branch name", ws, name))
+        }
+        RefKind::Remote => menu
+            .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout_remote(n)))
+            .item(op_item(format!("Merge {name} into {cur}"), "Merging", Change::Refs, ws, name.clone(), |r, n| r.merge(n)))
+            .item(op_item(format!("Rebase {cur} onto {name}"), "Rebasing", Change::Refs, ws, name.clone(), |r, n| r.rebase(n)))
+            .separator()
+            .item({
+                let name = name.clone();
+                item(format!("Delete {name} from remote…"), ws, move |this, window, cx| {
+                    let n = name.clone();
+                    this.confirm("Delete remote branch", format!("Delete {n} on the remote for everyone?"), "Delete", "Deleting", window, cx, move |r| {
+                        r.delete_remote_branch(&n)
+                    });
+                })
+            })
+            .item(copy_item("Copy branch name", ws, name)),
+        RefKind::Tag => menu
+            .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout(n)))
+            .item(op_item("Push tag to origin", "Pushing tag", Change::Refs, ws, name.clone(), |r, n| r.push_tag(n)))
+            .separator()
+            .item({
+                let name = name.clone();
+                item(format!("Delete tag {name}…"), ws, move |this, window, cx| {
+                    let n = name.clone();
+                    this.confirm("Delete tag", format!("Delete local tag {n}?"), "Delete", "Deleting", window, cx, move |r| r.delete_tag(&n));
+                })
+            })
+            .item(copy_item("Copy tag name", ws, name)),
+        RefKind::Stash => menu
+            .item(item("Apply stash", ws, move |this, _, cx| this.run("Applying stash", Change::Refs, cx, move |r| r.stash_apply(index))))
+            .item(item("Pop stash", ws, move |this, _, cx| this.run("Popping stash", Change::Refs, cx, move |r| r.stash_pop(index))))
+            .separator()
+            .item(item("Drop stash…", ws, move |this, window, cx| {
+                this.confirm("Drop stash", format!("Permanently drop stash@{{{index}}}?"), "Drop", "Dropping", window, cx, move |r| {
+                    r.stash_drop(index)
+                });
+            })),
+    }
+}
+
+pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) -> PopupMenu {
+    let path = change.path.clone();
+    let c1 = change.clone();
+    let c2 = change.clone();
+    menu.item(item(if staged { "Unstage file" } else { "Stage file" }, ws, move |this, _, cx| {
+        let path = c1.path.clone();
+        if staged {
+            this.run("Unstaging", Change::Status, cx, move |r| r.unstage(&[&path]));
+        } else {
+            this.run("Staging", Change::Status, cx, move |r| r.stage(&[&path]));
+        }
+    }))
+    .when(!staged && change.status != FileStatus::Conflicted, |menu| {
+        menu.item(item("Discard changes…", ws, move |this, window, cx| {
+            let change = c2.clone();
+            let what = if change.status == FileStatus::Untracked { "Delete untracked file" } else { "Discard all changes to" };
+            this.confirm("Discard changes", format!("{what} {}? This cannot be undone.", change.path), "Discard", "Discarding", window, cx, move |r| {
+                r.discard(&change)
+            });
+        }))
+    })
+    .separator()
+    .item(copy_item("Copy path", ws, path))
+}
+
+pub fn operation_name(op: Operation) -> &'static str {
+    match op {
+        Operation::Merge => "Merge",
+        Operation::Rebase => "Rebase",
+        Operation::CherryPick => "Cherry-pick",
+        Operation::Revert => "Revert",
+        Operation::None => "",
+    }
+}

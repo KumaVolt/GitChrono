@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
 
-use crate::diff::parse_patch;
+use crate::diff::{ApplyMode, parse_patch};
 use crate::model::*;
 use crate::repo::Repo;
 
@@ -199,6 +199,56 @@ impl Repo {
         } else {
             self.git(&["restore", "--worktree", "--", &change.path]).map(drop)
         }
+    }
+
+    /// Apply a patch from [`crate::partial_patch`] to the index or working tree.
+    pub fn apply_patch(&self, patch: &str, mode: ApplyMode) -> Result<()> {
+        use std::io::Write as _;
+        let mut args = vec!["apply", "--recount", "--whitespace=nowarn"];
+        if mode != ApplyMode::Discard {
+            args.push("--cached");
+        }
+        if mode.reverse() {
+            args.push("-R");
+        }
+        args.push("-");
+        let mut child = Command::new("git")
+            .args(&args)
+            .current_dir(self.root())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child.stdin.take().expect("piped stdin").write_all(patch.as_bytes())?;
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(GitError { command: args.join(" "), stderr, code: output.status.code() }.into());
+        }
+        Ok(())
+    }
+
+    pub fn push_tag(&self, name: &str) -> Result<()> {
+        self.git(&["push", "origin", &format!("refs/tags/{name}")]).map(drop)
+    }
+
+    pub fn delete_tag(&self, name: &str) -> Result<()> {
+        self.git(&["tag", "-d", name]).map(drop)
+    }
+
+    pub fn rename_branch(&self, old: &str, new: &str) -> Result<()> {
+        self.git(&["branch", "-m", old, new]).map(drop)
+    }
+
+    pub fn delete_remote_branch(&self, remote_branch: &str) -> Result<()> {
+        let (remote, branch) = remote_branch
+            .split_once('/')
+            .ok_or_else(|| anyhow::anyhow!("not a remote branch: {remote_branch}"))?;
+        self.git(&["push", remote, "--delete", branch]).map(drop)
+    }
+
+    pub fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()> {
+        self.git(&["branch", "--set-upstream-to", upstream, branch]).map(drop)
     }
 
     pub fn commit(&self, message: &str, amend: bool) -> Result<()> {

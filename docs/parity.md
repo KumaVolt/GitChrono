@@ -13,18 +13,18 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Diff viewer (unified) | ✅ | |
 | Sidebar: local / remote / tags / stashes | ✅ | double-click to checkout |
 | Fetch / pull / push (+ upstream, ahead/behind) | ✅ | |
-| Stash push / pop | ✅ | apply/drop in core, no UI yet |
+| Stash push / pop / apply / drop | ✅ | |
 | Checkout, branch here, cherry-pick, revert, reset | ✅ | buttons in detail panel |
 | Merge/rebase/cherry-pick in progress banner (continue/abort) | ✅ | |
-| Hunk- and line-level staging | ⬜ | `git apply --cached` with generated patches |
-| Discard changes | 🟡 | core only |
-| Right-click context menus (commit, branch, file) | ⬜ | gpui-component menu |
-| Create/rename/delete branch & tag dialogs | 🟡 | core only |
-| Auto-refresh on file changes (fs watcher) | ⬜ | `notify` crate |
+| Hunk- and line-level staging / unstaging | ✅ | `partial_patch` + `git apply --cached --recount`, integration tested |
+| Discard changes (file / hunk / lines) | ✅ | with confirmation |
+| Right-click context menus (commit, branch, remote, tag, stash, file) | ✅ | not yet click-tested |
+| Create/rename/delete branch & tag dialogs | ✅ | prompt overlay |
+| Auto-refresh on file changes (fs watcher) | ✅ | status-only vs full reload |
 | Command palette (⌘P) / keyboard navigation | ⬜ | |
 | Search commits (message, author, sha) | ⬜ | |
 | Tab per repo, recent repos | ⬜ | |
-| Version-aware tag sorting | ⬜ | currently lexical |
+| Version-aware tag sorting | ✅ | |
 | Lazy paging past 50k commits | ⬜ | |
 
 ## Tier 2 — Solid
