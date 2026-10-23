@@ -15,7 +15,7 @@ use crate::graph_paint::{self, Node, ROW_HEIGHT};
 use crate::menus;
 use crate::theme::{self, c};
 use crate::watcher::Change;
-use crate::workspace::{DiffSource, Selection, Suggest, Workspace};
+use crate::workspace::{DiffSource, Selection, Workspace};
 
 pub fn relative_time(secs: i64) -> String {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(secs);
@@ -125,26 +125,8 @@ impl Workspace {
                     tool("push", if st.ahead > 0 { format!("Push ↑{}", st.ahead) } else { "Push".into() })
                         .on_click(cx.listener(|this, _, _, cx| this.run("Pushing", Change::Refs, cx, |r| r.push(false)))),
                 )
-                .child(tool("branch", "Branch".into()).on_click(cx.listener(|this, _, window, cx| {
-                    this.open_prompt("Create branch", Some("Branches from HEAD and checks it out.".into()), Some(""), "Create & checkout", false, window, cx, |name| {
-                        ("Creating branch".into(), Box::new(move |r: &gitchrono_core::Repo| r.create_branch(&name, None, true)) as crate::workspace::Op)
-                    });
-                    if this.has_wip()
-                        && let Some(p) = &mut this.prompt
-                    {
-                        p.suggest = Some(Suggest::BranchName);
-                    }
-                })))
-                .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| {
-                    this.open_prompt("Stash changes", Some("Message (optional)".into()), Some(""), "Stash", false, window, cx, |message| {
-                        let op = move |r: &gitchrono_core::Repo| r.stash_push(Some(message.as_str()).filter(|m| !m.is_empty()));
-                        ("Stashing".into(), Box::new(op) as crate::workspace::Op)
-                    });
-                    if let Some(p) = &mut this.prompt {
-                        p.raw = true;
-                        p.suggest = Some(Suggest::StashMessage);
-                    }
-                })))
+                .child(tool("branch", "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
+                .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
                 .child(tool("terminal", "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
                 .child(tool("pop", "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.run("Popping stash", Change::Refs, cx, |r| r.stash_pop(0)),
@@ -263,8 +245,12 @@ impl Workspace {
             .border_color(c(theme::BORDER))
             .pb_4();
 
+        let filter = self.ref_filter(cx);
+        let keep = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
+        col = col.child(div().p_2().child(Input::new(&self.sidebar_filter).small().cleanable(true)));
+
         col = col.child(section_header("Local", refs.local.len()));
-        for b in &refs.local {
+        for b in refs.local.iter().filter(|b| keep(&b.name)) {
             let extra = match (b.ahead, b.behind) {
                 (0, 0) => String::new(),
                 (a, 0) => format!("↑{a}"),
@@ -274,15 +260,15 @@ impl Workspace {
             col = col.child(item(format!("l-{}", b.name).into(), b.name.clone(), extra, b.target.clone(), b.current, RefKind::Local, 0, cx));
         }
         col = col.child(section_header("Remote", refs.remote.len()));
-        for b in &refs.remote {
+        for b in refs.remote.iter().filter(|b| keep(&b.name)) {
             col = col.child(item(format!("r-{}", b.name).into(), b.name.clone(), String::new(), b.target.clone(), false, RefKind::Remote, 0, cx));
         }
         col = col.child(section_header("Tags", refs.tags.len()));
-        for t in refs.tags.iter().take(300) {
+        for t in refs.tags.iter().filter(|t| keep(&t.name)).take(300) {
             col = col.child(item(format!("t-{}", t.name).into(), t.name.clone(), String::new(), t.target.clone(), false, RefKind::Tag, 0, cx));
         }
         col = col.child(section_header("Stashes", refs.stashes.len()));
-        for s in &refs.stashes {
+        for s in refs.stashes.iter().filter(|s| keep(&s.message)) {
             col = col.child(item(format!("s-{}", s.index).into(), s.message.clone(), String::new(), s.target.clone(), false, RefKind::Stash, s.index, cx));
         }
         col
@@ -300,7 +286,7 @@ impl Workspace {
             .text_color(c(theme::FAINT))
             .border_b_1()
             .border_color(c(theme::BORDER))
-            .child(div().w(px(200.)).px_3().child("BRANCH / TAG"))
+            .child(div().w(px(170.)).px_3().child("BRANCH / TAG"))
             .child(div().w(gutter).px_2().child("GRAPH"))
             .child(div().flex_1().px_2().child("COMMIT MESSAGE"))
             .child(div().w(px(150.)).px_2().child("AUTHOR"))
@@ -316,7 +302,46 @@ impl Workspace {
         .track_scroll(&self.list_scroll)
         .flex_1();
 
-        div().flex_1().min_w_0().h_full().flex().flex_col().bg(c(theme::BG)).child(header).child(list)
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(c(theme::BG))
+            .children(self.render_search_bar(cx))
+            .child(header)
+            .child(list)
+    }
+
+    fn render_search_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let search = self.search.as_ref()?;
+        let query_empty = search.input.read(cx).value().trim().is_empty();
+        let count = match (query_empty, search.matches.len()) {
+            (true, _) => String::new(),
+            (false, 0) => "No matches".into(),
+            (false, n) => format!("{} of {n}", search.current + 1),
+        };
+        Some(
+            div()
+                .key_context("GraphSearch")
+                .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, _, cx| this.close_search(cx)))
+                .h(px(40.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .bg(c(theme::PANEL))
+                .border_b_1()
+                .border_color(c(theme::BORDER))
+                .child(div().flex_1().max_w(px(420.)).child(Input::new(&search.input).small()))
+                .child(div().text_xs().text_color(c(theme::MUTED)).child(count))
+                .child(Button::new("search-prev").label("↑").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.step_search(-1, cx))))
+                .child(Button::new("search-next").label("↓").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.step_search(1, cx))))
+                .child(div().flex_1())
+                .child(Button::new("search-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.close_search(cx)))),
+        )
     }
 
     fn render_row(&self, row: usize, gutter: Pixels, cx: &mut Context<Self>) -> AnyElement {
@@ -346,7 +371,7 @@ impl Workspace {
             let n = self.status.change_count();
             return base
                 .when(selected, |d| d.bg(c(theme::SELECTED)))
-                .child(div().w(px(200.)).flex_none())
+                .child(div().w(px(170.)).flex_none())
                 .child(
                     div()
                         .w(gutter)
@@ -371,14 +396,16 @@ impl Workspace {
         let color = theme::lane(layout.color);
         let selected = self.selection == Selection::Commit(index);
         let merge = commit.parents.len() > 1;
+        let dimmed = self.search.as_ref().is_some_and(|s| !s.matches.is_empty() && !s.hit.contains(&index));
         let ws = cx.entity().downgrade();
         let id = commit.id.clone();
         let current = self.status.branch.clone();
 
         base.when(selected, |d| d.bg(c(theme::SELECTED)))
+            .when(dimmed, |d| d.opacity(0.3))
             .child(
                 div()
-                    .w(px(200.))
+                    .w(px(170.))
                     .flex_none()
                     .px_2()
                     .flex()
@@ -389,7 +416,7 @@ impl Workspace {
                         d.child(div().text_xs().text_color(c(theme::MUTED)).child(format!("+{}", commit.refs.len() - 3)))
                     }),
             )
-            .child(div().w(gutter).h_full().flex_none().child(graph_paint::row_canvas(layout, Node::Commit { merge })))
+            .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge })))
             .child(
                 div()
                     .flex_1()
@@ -762,7 +789,8 @@ impl Render for Workspace {
             Selection::None => None,
         };
 
-        root.child(self.render_toolbar(cx))
+        root.on_action(cx.listener(|this, _: &crate::workspace::CloseSearch, _, cx| this.close_search(cx)))
+            .child(self.render_toolbar(cx))
             .child(self.render_banners(cx))
             .child(
                 div()

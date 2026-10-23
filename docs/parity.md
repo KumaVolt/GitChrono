@@ -21,8 +21,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Right-click context menus (commit, branch, remote, tag, stash, file) | ✅ | not yet click-tested |
 | Create/rename/delete branch & tag dialogs | ✅ | prompt overlay |
 | Auto-refresh on file changes (fs watcher) | ✅ | status-only vs full reload |
-| Command palette (⌘P) / keyboard navigation | ⬜ | |
-| Search commits (message, author, sha) | ⬜ | |
+| Command palette (⌘P / ⌘K) | ✅ | actions, branches, tabs, repos; fuzzy |
+| Search commits (message, author, sha) | ✅ | ⌘F, dims non-matches, Enter / ⇧Enter |
 | Tab per repo, recent repos, restore on launch | ✅ | `shell.rs`; ⌘T / ⌘W / ctrl-tab |
 | Project folders (parent folder → all repos inside) | ✅ | home tab, scan depth 4, "Open all" |
 | Embedded terminal (per repo, multiple tabs) | ✅ | `alacritty_terminal` PTY, ⌥T; no mouse selection/copy yet |
@@ -60,9 +60,9 @@ Ordered by how much a daily user misses them.
 
 | Feature | GitKraken | Status |
 |---|---|---|
-| Command palette | ⌘P: run any action, "Open in" detected IDEs | ⬜ |
-| Search / filter graph | message, author, sha, file; highlight matches | ⬜ |
-| Left-panel filter | filter branches/remotes/tags as you type | ⬜ |
+| Command palette | ⌘P: run any action, "Open in" detected IDEs | ✅ (no "Open in" yet) |
+| Search / filter graph | message, author, sha, file; highlight matches | ✅ (not by file yet) |
+| Left-panel filter | filter branches/remotes/tags as you type | ✅ |
 | Terminal: selection + copy, links, drag files in | xterm.js features | ⬜ |
 | Worktrees | create/open/remove, WIP row per worktree, tab per worktree | ⬜ |
 | Undo / redo | reset, rebase, checkout, commit via reflog | ⬜ |

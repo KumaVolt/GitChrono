@@ -1,7 +1,9 @@
 mod ai;
 mod diff_view;
+mod fuzzy;
 mod graph_paint;
 mod menus;
+mod palette;
 mod projects;
 mod shell;
 mod terminal;
@@ -23,6 +25,8 @@ fn main() {
         Theme::change(ThemeMode::Dark, None, cx);
         terminal::init(cx);
         shell::init(cx);
+        palette::init(cx);
+        workspace::init(cx);
 
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let options = WindowOptions {

@@ -159,7 +159,7 @@ impl Terminal {
         self.write(bytes);
     }
 
-    fn paste(&self, text: &str) {
+    fn paste_text(&self, text: &str) {
         let text = text.replace("\r\n", "\r").replace('\n', "\r");
         if self.term.lock().mode().contains(TermMode::BRACKETED_PASTE) {
             self.input(format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', "")).into_bytes());
@@ -175,7 +175,7 @@ impl Terminal {
             match ks.key.as_str() {
                 "v" => {
                     if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                        self.paste(&text);
+                        self.paste_text(&text);
                     }
                 }
                 "k" => self.input(&b"\x0c"[..]),
@@ -211,6 +211,47 @@ impl Terminal {
             term.scroll_display(Scroll::Delta(lines));
         }
         cx.notify();
+    }
+}
+
+/// Typed text (including IME and dead-key compositions) goes straight to the PTY.
+impl EntityInputHandler for Terminal {
+    fn text_for_range(&mut self, _: std::ops::Range<usize>, _: &mut Option<std::ops::Range<usize>>, _: &mut Window, _: &mut Context<Self>) -> Option<String> {
+        None
+    }
+
+    fn selected_text_range(&mut self, _: bool, _: &mut Window, _: &mut Context<Self>) -> Option<UTF16Selection> {
+        Some(UTF16Selection { range: 0..0, reversed: false })
+    }
+
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<std::ops::Range<usize>> {
+        None
+    }
+
+    fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {}
+
+    fn replace_text_in_range(&mut self, _: Option<std::ops::Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
+        self.input(text.to_string().into_bytes());
+        cx.notify();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _: Option<std::ops::Range<usize>>,
+        _: &str,
+        _: Option<std::ops::Range<usize>>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        // Composition in progress; the final text arrives via replace_text_in_range.
+    }
+
+    fn bounds_for_range(&mut self, _: std::ops::Range<usize>, bounds: Bounds<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<Bounds<Pixels>> {
+        Some(bounds)
+    }
+
+    fn character_index_for_point(&mut self, _: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
+        None
     }
 }
 
@@ -266,6 +307,7 @@ fn key_bytes(key: &str, key_char: Option<&str>, m: Modifiers, app_cursor: bool) 
         "f11" => tilde(23),
         "f12" => tilde(24),
         "space" if m.control => vec![0],
+        "space" => b" ".to_vec(),
         _ if m.control && key.len() == 1 => {
             let c = key.as_bytes()[0].to_ascii_lowercase();
             let code = match c {
@@ -280,8 +322,10 @@ fn key_bytes(key: &str, key_char: Option<&str>, m: Modifiers, app_cursor: bool) 
             };
             if m.alt { vec![0x1b, code] } else { vec![code] }
         }
-        "space" => b" ".to_vec(),
-        _ => key_char?.as_bytes().to_vec(),
+        // Alt+letter as Meta when the layout produced no special character.
+        _ if m.alt && key.len() == 1 && key_char.is_none_or(|c| c == key) => [b"\x1b", key.as_bytes()].concat(),
+        // Printable text arrives through the platform input handler (IME, dead keys).
+        _ => return None,
     };
     Some(bytes)
 }
@@ -354,6 +398,8 @@ impl Render for Terminal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let term = self.term.clone();
         let sender = self.sender.clone();
+        let entity = cx.entity();
+        let focus = self.focus.clone();
         let focused = self.focus.is_focused(window);
         div()
             .id("terminal")
@@ -368,7 +414,10 @@ impl Render for Terminal {
             .on_action(cx.listener(|this, _: &SendTab, _, _| this.input(&b"\t"[..])))
             .on_action(cx.listener(|this, _: &SendShiftTab, _, _| this.input(&b"\x1b[Z"[..])))
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.focus.focus(window, cx)))
-            .child(canvas(|_, _, _| {}, move |bounds, (), window, cx| paint_grid(&term, &sender, bounds, focused, window, cx)).size_full())
+            .child(canvas(|_, _, _| {}, move |bounds, (), window, cx| {
+                window.handle_input(&focus, ElementInputHandler::new(bounds, entity), cx);
+                paint_grid(&term, &sender, bounds, focused, window, cx)
+            }).size_full())
     }
 }
 
@@ -518,7 +567,7 @@ mod tests {
         assert_eq!(key_bytes("right", None, shift, false).unwrap(), b"\x1b[1;2C");
         assert_eq!(key_bytes("tab", None, shift, false).unwrap(), b"\x1b[Z");
         assert_eq!(key_bytes("delete", None, none, false).unwrap(), b"\x1b[3~");
-        assert_eq!(key_bytes("a", Some("A"), shift, false).unwrap(), b"A");
+        assert!(key_bytes("a", Some("A"), shift, false).is_none(), "text goes through the input handler");
         assert!(key_bytes("shift", None, shift, false).is_none());
     }
 }

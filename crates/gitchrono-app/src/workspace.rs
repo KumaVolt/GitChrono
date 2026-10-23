@@ -22,6 +22,12 @@ use crate::watcher::{self, Change};
 
 const LOG_LIMIT: usize = 50_000;
 
+actions!(workspace, [CloseSearch]);
+
+pub fn init(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new("escape", CloseSearch, Some("GraphSearch > Input"))]);
+}
+
 pub type Op = Box<dyn FnOnce(&Repo) -> Result<()> + Send>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,6 +88,16 @@ pub enum WorkspaceEvent {
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
 
+/// The graph's search bar: matches dim everything else and Enter walks them.
+pub struct GraphSearch {
+    pub input: Entity<InputState>,
+    /// Commit indices that match, newest first.
+    pub matches: Vec<usize>,
+    pub current: usize,
+    pub hit: HashSet<usize>,
+    _sub: Subscription,
+}
+
 pub struct Workspace {
     pub repo: Option<Arc<Repo>>,
     pub snap: Arc<Snapshot>,
@@ -117,6 +133,9 @@ pub struct Workspace {
     pub terminals: Vec<Entity<Terminal>>,
     pub terminal_index: usize,
     pub terminal_open: bool,
+    pub search: Option<GraphSearch>,
+    pub sidebar_filter: Entity<InputState>,
+    _sidebar_filter_sub: Subscription,
     _activation: Subscription,
 }
 
@@ -132,6 +151,8 @@ impl Workspace {
                 }
             }
         });
+        let sidebar_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter refs…").autocorrect(false));
+        let sidebar_filter_sub = cx.observe(&sidebar_filter, |_, _, cx| cx.notify());
         let mut this = Self {
             repo: None,
             snap: Arc::default(),
@@ -165,6 +186,9 @@ impl Workspace {
             terminals: Vec::new(),
             terminal_index: 0,
             terminal_open: false,
+            search: None,
+            sidebar_filter,
+            _sidebar_filter_sub: sidebar_filter_sub,
             _activation: activation,
         };
         if let Some(path) = path {
@@ -237,6 +261,89 @@ impl Workspace {
                 self.apply_change(change, cx);
             }
         }
+    }
+
+    pub fn prompt_create_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_prompt("Create branch", Some("Branches from HEAD and checks it out.".into()), Some(""), "Create & checkout", false, window, cx, |name| {
+            ("Creating branch".into(), Box::new(move |r: &Repo| r.create_branch(&name, None, true)) as Op)
+        });
+        if self.has_wip()
+            && let Some(p) = &mut self.prompt
+        {
+            p.suggest = Some(Suggest::BranchName);
+        }
+    }
+
+    pub fn prompt_stash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.status.is_clean() {
+            return;
+        }
+        self.open_prompt("Stash changes", Some("Message (optional)".into()), Some(""), "Stash", false, window, cx, |message| {
+            let op = move |r: &Repo| r.stash_push(Some(message.as_str()).filter(|m| !m.is_empty()));
+            ("Stashing".into(), Box::new(op) as Op)
+        });
+        if let Some(p) = &mut self.prompt {
+            p.raw = true;
+            p.suggest = Some(Suggest::StashMessage);
+        }
+    }
+
+    // ------------------------------------------------------------ search
+
+    pub fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(search) = &self.search {
+            let input = search.input.clone();
+            input.update(cx, |i, cx| i.focus(window, cx));
+            return;
+        }
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search message, author or SHA").autocorrect(false));
+        let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, _, cx| match event {
+            InputEvent::Change => this.update_search(cx),
+            InputEvent::PressEnter { shift, .. } => this.step_search(if *shift { -1 } else { 1 }, cx),
+            _ => {}
+        });
+        input.update(cx, |i, cx| i.focus(window, cx));
+        self.search = Some(GraphSearch { input, matches: Vec::new(), current: 0, hit: HashSet::new(), _sub: sub });
+        cx.notify();
+    }
+
+    pub fn close_search(&mut self, cx: &mut Context<Self>) {
+        self.search = None;
+        cx.notify();
+    }
+
+    fn update_search(&mut self, cx: &mut Context<Self>) {
+        let Some(search) = &mut self.search else { return };
+        let query = search.input.read(cx).value().trim().to_lowercase();
+        search.matches = if query.is_empty() {
+            Vec::new()
+        } else {
+            self.snap
+                .commits
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| commit_matches(c, &query))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        search.hit = search.matches.iter().copied().collect();
+        search.current = 0;
+        if let Some(&first) = search.matches.first() {
+            let id = self.snap.commits[first].id.clone();
+            self.select_commit_id(&id, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn step_search(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(search) = &mut self.search else { return };
+        if search.matches.is_empty() {
+            return;
+        }
+        let n = search.matches.len() as isize;
+        search.current = (search.current as isize + delta).rem_euclid(n) as usize;
+        let id = self.snap.commits[search.matches[search.current]].id.clone();
+        self.select_commit_id(&id, cx);
     }
 
     // ------------------------------------------------------------ terminal
@@ -435,6 +542,12 @@ impl Workspace {
         cx.notify();
     }
 
+    pub fn select_wip(&mut self, cx: &mut Context<Self>) {
+        if self.has_wip() {
+            self.select_row(0, cx);
+        }
+    }
+
     pub fn select_commit_id(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(i) = self.snap.commits.iter().position(|c| c.id == id) {
             let row = i + usize::from(self.has_wip());
@@ -624,6 +737,11 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Lower-cased filter text for the sidebar, if any.
+    pub fn ref_filter(&self, cx: &App) -> String {
+        self.sidebar_filter.read(cx).value().trim().to_lowercase()
+    }
+
     fn debug_open_first_diff(&mut self, cx: &mut Context<Self>) {
         match self.selection {
             Selection::Wip => {
@@ -646,4 +764,13 @@ impl Workspace {
             Selection::None => {}
         }
     }
+}
+
+/// `query` is lower-case: a SHA prefix, or text in the subject, body or author.
+fn commit_matches(c: &Commit, query: &str) -> bool {
+    (query.len() >= 4 && query.chars().all(|ch| ch.is_ascii_hexdigit()) && c.id.starts_with(query))
+        || c.summary.to_lowercase().contains(query)
+        || c.author_name.to_lowercase().contains(query)
+        || c.author_email.to_lowercase().contains(query)
+        || c.body.to_lowercase().contains(query)
 }

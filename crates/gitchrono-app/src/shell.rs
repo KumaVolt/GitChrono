@@ -14,7 +14,7 @@ use crate::projects::{self, Session};
 use crate::theme::{self, c};
 use crate::workspace::{Workspace, WorkspaceEvent};
 
-actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal]);
+actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal, OpenPalette, FindCommits]);
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -27,6 +27,10 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-shift-[", PrevTab, None),
         KeyBinding::new("alt-t", ToggleTerminal, None),
         KeyBinding::new("ctrl-`", ToggleTerminal, None),
+        KeyBinding::new("secondary-p", OpenPalette, None),
+        KeyBinding::new("secondary-shift-p", OpenPalette, None),
+        KeyBinding::new("secondary-k", OpenPalette, None),
+        KeyBinding::new("secondary-f", FindCommits, None),
     ]);
 }
 
@@ -37,21 +41,35 @@ enum Tab {
 
 pub struct Shell {
     tabs: Vec<Tab>,
-    active: usize,
+    pub(crate) active: usize,
+    pub(crate) palette: Option<crate::palette::Palette>,
     session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
     filter: Entity<InputState>,
     _filter_sub: Subscription,
+    /// Keeps key bindings working when no input has focus.
+    focus: FocusHandle,
+    _keystrokes: Subscription,
 }
 
 impl Shell {
     pub fn new(open: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter repositories…").autocorrect(false));
         let filter_sub = cx.observe(&filter, |_, _, cx| cx.notify());
+        // Escape closes overlays even when a text input consumed the key.
+        let keystrokes = cx.observe_keystrokes(|this: &mut Self, event, _, cx| {
+            if event.keystroke.key == "escape" {
+                if this.palette.is_some() {
+                    this.close_palette(cx);
+                } else if let Some(ws) = this.active_workspace().cloned() {
+                    ws.update(cx, |w, cx| w.close_search(cx));
+                }
+            }
+        });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub };
+            Self { tabs: Vec::new(), active: 0, palette: None, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         for path in session.tabs.iter().filter(|p| projects::is_repo(p)) {
             this.push_repo(path.clone(), window, cx);
@@ -164,7 +182,7 @@ impl Shell {
         cx.notify();
     }
 
-    fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if index >= self.tabs.len() {
             return;
         }
@@ -176,12 +194,42 @@ impl Shell {
         self.activate(next, window, cx);
     }
 
-    fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let i = self.tabs.iter().position(|t| matches!(t, Tab::Home)).unwrap_or_else(|| {
             self.tabs.push(Tab::Home);
             self.tabs.len() - 1
         });
         self.activate(i, window, cx);
+    }
+
+    pub(crate) fn active_workspace(&self) -> Option<&Entity<Workspace>> {
+        match self.tabs.get(self.active) {
+            Some(Tab::Repo { view, .. }) => Some(view),
+            _ => None,
+        }
+    }
+
+    /// (name, path) of every open repository tab.
+    pub(crate) fn tab_entries(&self) -> Vec<(String, PathBuf)> {
+        self.tabs
+            .iter()
+            .filter_map(|t| match t {
+                Tab::Repo { path, .. } => Some((projects::display_name(path), path.clone())),
+                Tab::Home => None,
+            })
+            .collect()
+    }
+
+    /// Recent and project-folder repositories that aren't open in a tab.
+    pub(crate) fn known_repos(&self) -> Vec<PathBuf> {
+        let open: Vec<PathBuf> = self.tab_entries().into_iter().map(|(_, p)| p).collect();
+        let mut out: Vec<PathBuf> = Vec::new();
+        for path in self.session.recent.iter().chain(self.scans.values().flatten()) {
+            if !open.contains(path) && !out.contains(path) {
+                out.push(path.clone());
+            }
+        }
+        out
     }
 
     fn cycle(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
@@ -384,12 +432,18 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Actions dispatch from the focused element; with nothing focused they
+        // would never reach our handlers.
+        if window.focused(cx).is_none() {
+            self.focus.focus(window, cx);
+        }
         let content = match self.tabs.get(self.active) {
             Some(Tab::Repo { view, .. }) => view.clone().into_any_element(),
             _ => self.render_home(cx).into_any_element(),
         };
         div()
+            .track_focus(&self.focus)
             .size_full()
             .flex()
             .flex_col()
@@ -405,7 +459,15 @@ impl Render for Shell {
                     view.update(cx, |w, cx| w.toggle_terminal(window, cx));
                 }
             }))
+            .on_action(cx.listener(|this, _: &OpenPalette, window, cx| this.open_palette(window, cx)))
+            .on_action(cx.listener(|this, _: &FindCommits, window, cx| {
+                if let Some(ws) = this.active_workspace().cloned() {
+                    ws.update(cx, |w, cx| w.open_search(window, cx));
+                }
+            }))
+            .relative()
             .child(self.render_tab_bar(cx))
             .child(div().flex_1().min_h_0().child(content))
+            .children(self.render_palette(cx))
     }
 }

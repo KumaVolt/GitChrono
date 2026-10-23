@@ -22,7 +22,7 @@ fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
 }
 
 pub fn gutter_width(max_lane: usize) -> Pixels {
-    px((PAD * 2. + (max_lane + 1) as f32 * LANE_WIDTH).min(360.))
+    px((PAD * 2. + (max_lane + 1) as f32 * LANE_WIDTH).min(240.))
 }
 
 pub fn row_canvas(row: Row, node: Node) -> impl IntoElement {
