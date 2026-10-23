@@ -35,7 +35,7 @@
         "description": "A fast, native Git GUI client written in Rust with a commit graph, line-level staging and diffs.",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "macOS, Windows, Linux",
-        "softwareVersion": "0.1.0",
+        "softwareVersion": "0.2.0",
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
         "downloadUrl": "https://github.com/KumaVolt/GitChrono/releases/latest",
         "screenshot": "https://gitchrono.com/assets/screenshot.png",
@@ -183,7 +183,11 @@
     .list span { color: var(--muted); font-size: 15px; }
 
     /* downloads */
-    .downloads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 44px; }
+    .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 44px; }
+    .arch { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .arch a { flex: 1; min-width: 0; text-align: center; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; font-size: 12px; color: var(--muted); background: var(--panel); white-space: nowrap; }
+    .arch a:hover { border-color: #3d4452; color: var(--text); }
+    .arch a.mine { border-color: color-mix(in srgb, var(--blue) 60%, var(--border)); color: var(--text); }
     .dl { display: flex; flex-direction: column; gap: 6px; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); transition: border-color .15s ease, transform .15s ease; }
     .dl:hover { border-color: #3d4452; transform: translateY(-2px); }
     .dl.recommended { border-color: color-mix(in srgb, var(--blue) 60%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent) inset; }
@@ -269,7 +273,7 @@
       <div class="fine" id="hero-fine">macOS · Windows · Linux — free</div>
 
       <div class="shot">
-        <img src="assets/screenshot.png" width="2000" height="1296" fetchpriority="high" alt="GitChrono Git GUI showing a colorful commit graph with branches, tags and a commit detail panel">
+        <img src="assets/screenshot.png" width="2000" height="1296" fetchpriority="high" alt="GitChrono with repository tabs, a colorful commit graph, a worktree in the sidebar and the built-in terminal">
       </div>
 
       <div class="stats">
@@ -316,6 +320,36 @@
           <h3>Behaves exactly like git</h3>
           <p>Writes go through your own git, so hooks, SSH keys, credential helpers and commit signing all just work.</p>
         </div>
+        <div class="card" style="--c: var(--cyan)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M8 6V4h5v2"/></svg></div>
+          <h3>Tabs and project folders</h3>
+          <p>A tab per repository, restored on launch. Add a parent folder once and every repository inside it is one click away.</p>
+        </div>
+        <div class="card" style="--c: var(--green)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></div>
+          <h3>Built-in terminal</h3>
+          <p>A real shell in every repository, with colors, completion and selection. Open as many as you like with ⌥T.</p>
+        </div>
+        <div class="card" style="--c: var(--blue)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg></div>
+          <h3>Palette and search</h3>
+          <p>⌘P runs any action, checks out any branch or opens any repository. ⌘F searches history by message, author or SHA.</p>
+        </div>
+        <div class="card" style="--c: var(--violet)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></div>
+          <h3>Undo anything</h3>
+          <p>Commit, reset, rebase, checkout, branch or tag: ⌘Z takes it back without ever overwriting your uncommitted work.</p>
+        </div>
+        <div class="card" style="--c: var(--pink)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg></div>
+          <h3>Rebase, resolve, blame</h3>
+          <p>Reorder, squash and reword commits, resolve conflicts side by side, and follow any file through history and blame.</p>
+        </div>
+        <div class="card" style="--c: var(--amber)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg></div>
+          <h3>AI commit messages</h3>
+          <p>One click writes a commit message in your repository's style, using your own OpenAI, Anthropic, Mistral, Gemini or local model.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -358,14 +392,14 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3zm0 13L10.5 19.6v-7H3zm8.5 1.2L21 21v-8.4h-9.5zm0-15.4v7.2H21V3z"/></svg>
           <b>Windows</b><span>64-bit</span><span class="file mono">.zip</span>
         </a>
-        <a class="dl" data-os="linux" data-match="linux-x86_64.tar.gz" href="https://github.com/KumaVolt/GitChrono/releases/latest">
+        <div class="dl" data-os="linux">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
-          <b>Linux</b><span>x86_64</span><span class="file mono">.tar.gz</span>
-        </a>
-        <a class="dl" data-os="linux-arm" data-match="linux-aarch64.tar.gz" href="https://github.com/KumaVolt/GitChrono/releases/latest">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>
-          <b>Linux ARM</b><span>aarch64</span><span class="file mono">.tar.gz</span>
-        </a>
+          <b>Linux</b><span>x86_64 or ARM64</span>
+          <div class="arch">
+            <a data-os="linux" data-match="linux-x86_64.tar.gz" data-label="x86_64" href="https://github.com/KumaVolt/GitChrono/releases/latest">x86_64</a>
+            <a data-os="linux-arm" data-match="linux-aarch64.tar.gz" data-label="ARM64" href="https://github.com/KumaVolt/GitChrono/releases/latest">ARM64</a>
+          </div>
+        </div>
       </div>
       <div class="release-meta" id="release-meta">Builds are published on <a href="https://github.com/KumaVolt/GitChrono/releases">GitHub Releases</a>.</div>
     </div>
@@ -444,10 +478,12 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
       const ua = navigator.userAgent;
       const os = /Mac/.test(ua) ? 'mac' : /Win/.test(ua) ? 'win' : /Linux/.test(ua) ? (/aarch64|arm/i.test(ua) ? 'linux-arm' : 'linux') : null;
       const names = { mac: 'macOS', win: 'Windows', linux: 'Linux', 'linux-arm': 'Linux ARM' };
-      const cards = Array.from(document.querySelectorAll('.dl'));
+      // Every download link (whole cards for macOS/Windows, the arch buttons for Linux).
+      const cards = Array.from(document.querySelectorAll('.downloads [data-match]'));
       const mine = cards.find(c => c.dataset.os === os);
       if (mine) {
-        mine.classList.add('recommended');
+        mine.closest('.dl').classList.add('recommended');
+        if (!mine.classList.contains('dl')) mine.classList.add('mine');
         document.getElementById('hero-download-label').textContent = 'Download for ' + names[os];
       }
 
@@ -458,7 +494,10 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
             const asset = release.assets.find(a => a.name.endsWith(card.dataset.match));
             if (!asset) continue;
             card.href = asset.browser_download_url;
-            card.querySelector('.file').textContent = asset.name + ' · ' + (asset.size / 1048576).toFixed(1) + ' MB';
+            const size = (asset.size / 1048576).toFixed(1) + ' MB';
+            const file = card.querySelector('.file');
+            if (file) file.textContent = (asset.name.endsWith('.tar.gz') ? 'tar.gz' : asset.name.split('.').pop()) + ' · ' + size;
+            else card.textContent = card.dataset.label + ' · ' + size;
           }
           if (mine && mine.href.includes('/download/')) document.getElementById('hero-download').href = mine.href;
           const date = new Date(release.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
