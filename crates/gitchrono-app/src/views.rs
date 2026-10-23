@@ -137,6 +137,7 @@ impl Workspace {
             .child(Button::new("open").label("Open").ghost().small().on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))))
             .when(self.repo.is_some(), |bar| {
                 bar.child(tool("fetch", "Fetch".into()).on_click(cx.listener(|this, _, _, cx| {
+                    this.load_pull_requests(cx);
                     this.run("Fetching", Change::Refs, cx, |r| r.fetch());
                 })))
                 .child(
@@ -337,6 +338,89 @@ impl Workspace {
                         .child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child(branch))
                         .on_click(cx.listener(move |_, _, _, cx| cx.emit(WorkspaceEvent::OpenPath(open.clone()))))
                         .context_menu(move |menu, _, _| menus::worktree_menu(menu, &ws, for_menu.clone(), removable)),
+                );
+            }
+        }
+        if !self.snap.submodules.is_empty() {
+            let root = self.repo.as_ref().map(|r| r.root().to_path_buf()).unwrap_or_default();
+            col = col.child(section_header("Submodules", self.snap.submodules.len()));
+            for (i, sub) in self.snap.submodules.iter().enumerate().filter(|(_, s)| keep(&s.path)) {
+                let state = match sub.state {
+                    '-' => "not initialized",
+                    '+' => "changed",
+                    'U' => "conflict",
+                    _ => "",
+                };
+                let full = root.join(&sub.path);
+                let (open, update, copy) = (full.clone(), sub.path.clone(), full.to_string_lossy().into_owned());
+                let initialized = sub.state != '-';
+                let ws = cx.entity().downgrade();
+                col = col.child(
+                    div()
+                        .id(("sub", i))
+                        .px_3()
+                        .py_0p5()
+                        .pl(px(30.))
+                        .flex()
+                        .gap_1p5()
+                        .text_sm()
+                        .text_color(c(theme::MUTED))
+                        .hover(|s| s.bg(c(theme::HOVER)))
+                        .cursor_pointer()
+                        .child(div().truncate().child(sub.path.clone()))
+                        .child(div().flex_none().text_xs().text_color(c(if state.is_empty() { theme::FAINT } else { theme::WARN })).child(state))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if initialized {
+                                cx.emit(WorkspaceEvent::OpenPath(open.clone()));
+                            } else {
+                                let p = update.clone();
+                                this.run("Initializing submodule", Change::Refs, cx, move |r| r.update_submodule(&p));
+                            }
+                        }))
+                        .context_menu({
+                            let (open, update) = (full.clone(), sub.path.clone());
+                            move |menu, _, _| menus::submodule_menu(menu, &ws, open.clone(), update.clone(), copy.clone())
+                        }),
+                );
+            }
+        }
+        if let Some(prs) = &self.pull_requests {
+            col = col.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .pr_2()
+                    .child(section_header("Pull requests", prs.len()))
+                    .child(Button::new("pr-new").label("New").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+                        let Some(root) = this.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
+                        this.run_inner("Opening pull request form".into(), Change::Refs, false, cx, move |_| crate::github::create_in_browser(&root), |_, _| {});
+                    }))),
+            );
+            for (i, pr) in prs.iter().enumerate().filter(|(_, p)| keep(&p.title) || keep(&p.head_ref_name)) {
+                let url = pr.url.clone();
+                let number = pr.number;
+                let ws = cx.entity().downgrade();
+                col = col.child(
+                    div()
+                        .id(("pr", i))
+                        .px_3()
+                        .py_0p5()
+                        .pl(px(30.))
+                        .flex()
+                        .gap_1p5()
+                        .text_sm()
+                        .text_color(c(theme::MUTED))
+                        .hover(|s| s.bg(c(theme::HOVER)))
+                        .cursor_pointer()
+                        .child(div().flex_none().text_color(c(theme::FAINT)).child(format!("#{}", pr.number)))
+                        .child(div().truncate().child(pr.title.clone()))
+                        .when(pr.is_draft, |d| d.child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child("draft")))
+                        .child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child(pr.author.login.clone()))
+                        .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
+                        .context_menu({
+                            let url = pr.url.clone();
+                            move |menu, _, _| menus::pr_menu(menu, &ws, number, url.clone())
+                        }),
                 );
             }
         }
@@ -560,6 +644,11 @@ impl Workspace {
                             .text_color(c(theme::MUTED))
                             .child(format!("{} <{}> · {}", commit.author_name, commit.author_email, relative_time(commit.time))),
                     )
+                    .when_some(self.commit_signature.clone(), |d, sig| {
+                        let color = if sig.is_good() { theme::ADD } else if sig.status == 'B' || sig.status == 'R' { theme::DEL } else { theme::WARN };
+                        let signer = if sig.signer.is_empty() { String::new() } else { format!(" · {}", sig.signer) };
+                        d.child(div().text_xs().text_color(c(color)).child(format!("{} {}{signer}", if sig.is_good() { "✓" } else { "⚠" }, sig.describe())))
+                    })
                     .when(!commit.parents.is_empty(), |d| {
                         d.child(div().text_xs().text_color(c(theme::FAINT)).child(format!(
                             "parent{} {}",

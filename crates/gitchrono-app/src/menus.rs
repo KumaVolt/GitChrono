@@ -277,3 +277,24 @@ pub fn worktree_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, removab
         .separator()
         .item(copy_item("Copy path", ws, path.to_string_lossy().into_owned()))
 }
+
+pub fn submodule_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, rel: String, copy: String) -> PopupMenu {
+    menu.item(item("Open in tab", ws, move |_, _, cx| cx.emit(crate::workspace::WorkspaceEvent::OpenPath(path.clone()))))
+        .item(item("Update / initialize", ws, move |this, _, cx| {
+            let p = rel.clone();
+            this.run("Updating submodule", Change::Refs, cx, move |r| r.update_submodule(&p))
+        }))
+        .separator()
+        .item(copy_item("Copy path", ws, copy))
+}
+
+pub fn pr_menu(menu: PopupMenu, ws: &Ws, number: u64, url: String) -> PopupMenu {
+    let open = url.clone();
+    menu.item(item("Open on GitHub", ws, move |_, _, cx| cx.open_url(&open)))
+        .item(item(format!("Check out #{number}"), ws, move |this, _, cx| {
+            let Some(root) = this.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
+            this.run("Checking out pull request", Change::Refs, cx, move |_| crate::github::checkout(&root, number))
+        }))
+        .separator()
+        .item(copy_item("Copy link", ws, url))
+}

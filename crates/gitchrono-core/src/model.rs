@@ -202,3 +202,38 @@ pub struct BlameLine {
     pub line_no: usize,
     pub text: String,
 }
+
+/// GPG/SSH signature check of a commit (`%G?`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    /// G good, U good but unknown validity, X/Y expired, R revoked, B bad, E can't check.
+    pub status: char,
+    pub signer: String,
+    pub key: String,
+}
+
+impl Signature {
+    pub fn is_good(&self) -> bool {
+        matches!(self.status, 'G' | 'U')
+    }
+
+    pub fn describe(&self) -> &'static str {
+        match self.status {
+            'G' => "Good signature",
+            'U' => "Good signature (unknown validity)",
+            'X' => "Good signature, expired",
+            'Y' => "Good signature, expired key",
+            'R' => "Signed with a revoked key",
+            'B' => "Bad signature",
+            _ => "Signed, but the key isn't available to verify",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Submodule {
+    pub path: String,
+    pub sha: String,
+    /// ' ' up to date, '-' not initialized, '+' checked-out commit differs, 'U' conflicts.
+    pub state: char,
+}

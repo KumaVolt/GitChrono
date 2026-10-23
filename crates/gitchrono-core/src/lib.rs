@@ -26,6 +26,7 @@ pub struct Snapshot {
     pub commits: Vec<Commit>,
     pub status: Status,
     pub worktrees: Vec<Worktree>,
+    pub submodules: Vec<Submodule>,
 }
 
 /// Which branches the graph walks. The checked-out branch always shows.
@@ -74,7 +75,8 @@ impl Repo {
         let commits = self.log(&filter.apply(&refs), limit)?;
         let status = self.status()?;
         let worktrees = self.worktrees().unwrap_or_default();
-        Ok(Snapshot { refs, commits, status, worktrees })
+        let submodules = self.submodules().unwrap_or_default();
+        Ok(Snapshot { refs, commits, status, worktrees, submodules })
     }
 }
 

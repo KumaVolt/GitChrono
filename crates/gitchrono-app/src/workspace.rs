@@ -113,6 +113,9 @@ pub struct Workspace {
     pub graph: Arc<Graph>,
     pub selection: Selection,
     pub commit_files: Vec<FileChange>,
+    pub commit_signature: Option<gitchrono_core::Signature>,
+    /// Open pull requests from `gh`; `None` when unavailable.
+    pub pull_requests: Option<Vec<crate::github::PullRequest>>,
     /// Commit indices picked with ⌘/Shift-click (two or more means multi-select).
     pub multi: Vec<usize>,
     pub diff: Option<DiffView>,
@@ -185,6 +188,8 @@ impl Workspace {
             graph: Arc::default(),
             selection: Selection::None,
             commit_files: Vec::new(),
+            commit_signature: None,
+            pull_requests: None,
             multi: Vec::new(),
             diff: None,
             prompt: None,
@@ -244,6 +249,7 @@ impl Workspace {
                 self.selection = Selection::None;
                 self.diff = None;
                 self.reload(cx);
+                self.load_pull_requests(cx);
             }
             Err(e) => self.error = Some(format!("{e:#}").into()),
         }
@@ -714,6 +720,20 @@ impl Workspace {
         cx.notify();
     }
 
+    pub fn load_pull_requests(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
+        let task = cx.background_spawn(async move { crate::github::open_pull_requests(&root) });
+        cx.spawn(async move |this, cx| {
+            let prs = task.await;
+            this.update(cx, |this, cx| {
+                this.pull_requests = prs;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     // ------------------------------------------------------------ graph filter
 
     pub fn toggle_hidden(&mut self, name: &str, cx: &mut Context<Self>) {
@@ -812,12 +832,13 @@ impl Workspace {
             return;
         };
         let id = commit.id.clone();
-        let task = cx.background_spawn(async move { repo.commit_files(&id) });
+        let task = cx.background_spawn(async move { (repo.commit_files(&id), repo.signature(&id)) });
         cx.spawn(async move |this, cx| {
-            let files = task.await;
+            let (files, signature) = task.await;
             this.update(cx, |this, cx| {
                 if this.selection == Selection::Commit(index) {
                     this.commit_files = files.unwrap_or_default();
+                    this.commit_signature = signature.ok().flatten();
                     cx.notify();
                 }
             })

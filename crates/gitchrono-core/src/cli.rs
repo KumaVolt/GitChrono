@@ -295,6 +295,43 @@ impl Repo {
         Ok(parse_blame(&self.git(&args)?))
     }
 
+    /// Signature status of a commit; `None` when unsigned.
+    pub fn signature(&self, id: &str) -> Result<Option<Signature>> {
+        let out = self.git(&["log", "-1", "--format=%G?%x00%GS%x00%GK", id])?;
+        let mut parts = out.trim_end_matches('\n').split('\0');
+        let status = parts.next().and_then(|s| s.chars().next()).unwrap_or('N');
+        if status == 'N' {
+            return Ok(None);
+        }
+        Ok(Some(Signature {
+            status,
+            signer: parts.next().unwrap_or_default().to_string(),
+            key: parts.next().unwrap_or_default().to_string(),
+        }))
+    }
+
+    pub fn submodules(&self) -> Result<Vec<Submodule>> {
+        if !self.root().join(".gitmodules").exists() {
+            return Ok(Vec::new());
+        }
+        let out = self.git(&["submodule", "status"])?;
+        Ok(out
+            .lines()
+            .filter(|l| l.len() > 41)
+            .map(|l| {
+                let state = l.chars().next().unwrap_or(' ');
+                let rest = &l[1..];
+                let (sha, rest) = rest.split_once(' ').unwrap_or((rest, ""));
+                let path = rest.split(" (").next().unwrap_or(rest).to_string();
+                Submodule { path, sha: sha.to_string(), state }
+            })
+            .collect())
+    }
+
+    pub fn update_submodule(&self, path: &str) -> Result<()> {
+        self.git(&["submodule", "update", "--init", "--recursive", "--", path]).map(drop)
+    }
+
     pub fn worktrees(&self) -> Result<Vec<Worktree>> {
         Ok(parse_worktrees(&self.git(&["worktree", "list", "--porcelain"])?))
     }

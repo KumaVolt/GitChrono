@@ -38,8 +38,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
 | Side-by-side diff, syntax highlighting | ✅ syntect (pure Rust); Split/Unified toggle, line staging in both |
 | Undo / redo of operations | ✅ ref snapshots before/after every op; soft undo for commits, `reset --keep` otherwise |
-| Submodules, LFS, worktrees | 🟡 worktrees ✅ (sidebar, create from branch/new, open in tab, remove); submodules & LFS todo |
-| Commit signing indicators | ⬜ |
+| Submodules, LFS, worktrees | 🟡 worktrees ✅, submodules ✅ (list, init/update, open in tab); LFS todo |
+| Commit signing indicators | ✅ GPG/SSH status in commit details |
 | Graph compaction for wide histories | ⬜ |
 | Packaging: signed .dmg, Windows, Linux, auto-update | ⬜ |
 
@@ -75,9 +75,9 @@ Ordered by how much a daily user misses them.
 | Hide / solo / pin branches | | ✅ hide & solo (saved per repo); pin todo |
 | Tab aliases, tab reordering | | ⬜ |
 | Clone / init dialogs | including from GitHub/GitLab | ⬜ |
-| Submodules and LFS | | ⬜ |
-| Commit signing (GPG/SSH) and indicators | | ⬜ |
+| Submodules and LFS | | 🟡 submodules ✅, LFS todo |
+| Commit signing (GPG/SSH) and indicators | | ✅ indicators |
 | Zoom levels / font size | 140–300% | ⬜ |
-| Integrations and Launchpad | PRs/issues across hosts, Jira | ⬜ / 💎 |
+| Integrations and Launchpad | PRs/issues across hosts, Jira | 🟡 GitHub PRs via `gh` (list, open, check out, create) |
 | AI: explain commit, compose commits, conflict resolution | | ⬜ / 💎 |
 | Agent sessions | status of Claude Code / Codex in worktrees | ⬜ (later) |
