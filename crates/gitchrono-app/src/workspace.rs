@@ -6,6 +6,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Quiet period after a filesystem event before refreshing.
+const DEBOUNCE: Duration = Duration::from_millis(400);
+/// Minimum gap after a full history reload before handling more events.
+const RELOAD_COOLDOWN: Duration = Duration::from_secs(2);
+
 use anyhow::Result;
 use gitchrono_core::{ApplyMode, Commit, FileChange, FileDiff, FileStatus, Repo, Snapshot, Status};
 use gitchrono_graph::Graph;
@@ -79,12 +84,25 @@ pub struct Workspace {
     load_task: Option<Task<()>>,
     status_task: Option<Task<()>>,
     _watcher: Option<(notify::RecommendedWatcher, Task<()>)>,
+    /// Whether our window has focus. In the background we only record that
+    /// something changed and refresh once on re-activation.
+    active: bool,
+    pending: Option<Change>,
+    _activation: Subscription,
 }
 
 impl Workspace {
     pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let summary = cx.new(|cx| InputState::new(window, cx).placeholder("Commit summary"));
         let description = cx.new(|cx| TextareaState::new(window, cx).placeholder("Description"));
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            this.active = window.is_window_active();
+            if this.active {
+                if let Some(change) = this.pending.take() {
+                    this.apply_change(change, cx);
+                }
+            }
+        });
         let mut this = Self {
             repo: None,
             snap: Arc::default(),
@@ -107,6 +125,9 @@ impl Workspace {
             load_task: None,
             status_task: None,
             _watcher: None,
+            active: true,
+            pending: None,
+            _activation: activation,
         };
         if let Some(path) = path {
             this.open(path, cx);
@@ -134,27 +155,36 @@ impl Workspace {
         let task = cx.spawn(async move |this, cx| {
             while let Ok(first) = rx.recv().await {
                 // Coalesce bursts (checkouts, builds) into one refresh.
-                cx.background_executor().timer(Duration::from_millis(250)).await;
+                cx.background_executor().timer(DEBOUNCE).await;
                 let mut change = first;
                 while let Ok(next) = rx.try_recv() {
                     change = change.max(next);
                 }
-                let alive = this
-                    .update(cx, |this, cx| {
-                        if this.busy.is_none() {
-                            match change {
-                                Change::Status => this.refresh_status(cx),
-                                Change::Refs => this.reload(cx),
-                            }
-                        }
-                    })
-                    .is_ok();
-                if !alive {
+                let Ok(reloaded) = this.update(cx, |this, cx| {
+                    if this.active && this.busy.is_none() {
+                        this.apply_change(change, cx);
+                        change == Change::Refs
+                    } else {
+                        // Background (or mid-operation): remember, refresh later.
+                        this.pending = this.pending.max(Some(change));
+                        false
+                    }
+                }) else {
                     break;
+                };
+                if reloaded {
+                    cx.background_executor().timer(RELOAD_COOLDOWN).await;
                 }
             }
         });
         Some((watcher, task))
+    }
+
+    fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
+        match change {
+            Change::Status => self.refresh_status(cx),
+            Change::Refs => self.reload(cx),
+        }
     }
 
     pub fn prompt_open(&mut self, cx: &mut Context<Self>) {
@@ -293,10 +323,9 @@ impl Workspace {
                 if let Err(e) = result {
                     this.error = Some(format!("{e:#}").into());
                 }
-                match refresh {
-                    Change::Status => this.refresh_status(cx),
-                    Change::Refs => this.reload(cx),
-                }
+                // Our own refresh covers whatever the watcher saw meanwhile.
+                let refresh = this.pending.take().map_or(refresh, |p| p.max(refresh));
+                this.apply_change(refresh, cx);
             })
             .ok();
         })
@@ -434,7 +463,7 @@ impl Workspace {
         let (input, subscription) = match default {
             Some(default) => {
                 let default = default.to_string();
-                let input = cx.new(|cx| InputState::new(window, cx).default_value(default));
+                let input = cx.new(|cx| InputState::new(window, cx).default_value(default).autocorrect(false));
                 let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
                     if let InputEvent::PressEnter { .. } = ev {
                         this.submit_prompt(window, cx);
@@ -477,7 +506,12 @@ impl Workspace {
 
     pub fn submit_prompt(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(mut prompt) = self.prompt.take() else { return };
-        let text = prompt.input.as_ref().map(|i| i.read(cx).value().trim().to_string()).unwrap_or_default();
+        // Prompts ask for ref names: git rejects whitespace, so join words with `-`.
+        let text = prompt
+            .input
+            .as_ref()
+            .map(|i| i.read(cx).value().split_whitespace().collect::<Vec<_>>().join("-"))
+            .unwrap_or_default();
         if prompt.input.is_some() && text.is_empty() {
             self.prompt = Some(prompt);
             return;

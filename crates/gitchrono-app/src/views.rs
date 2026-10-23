@@ -616,7 +616,7 @@ impl Workspace {
             .gap_4()
             .bg(c(theme::BG))
             .child(div().text_3xl().font_weight(FontWeight::BOLD).child("GitChrono"))
-            .child(div().text_color(c(theme::MUTED)).child("A fast, native Git client"))
+            .child(div().text_color(c(theme::MUTED)).child(concat!("A fast, native Git client · v", env!("CARGO_PKG_VERSION"))))
             .child(
                 Button::new("welcome-open")
                     .label("Open Repository…")

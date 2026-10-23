@@ -31,6 +31,23 @@ Benchmark: `cargo run --release -p gitchrono-core --example snapshot -- <repo>`
 **Debug hook.** `GITCHRONO_SELECT=<row>[:diff]` selects a row (and opens its first diff)
 after the first load — used for headless screenshots.
 
+## Releases
+
+Builds run on GitHub Actions:
+
+- **CI** (`.github/workflows/ci.yml`) — tests + app build on macOS, Linux and Windows for every push/PR.
+- **Release** (`.github/workflows/release.yml`) — on a `v*` tag, builds and publishes a GitHub Release:
+  macOS universal `.dmg`, Windows x64 `.zip`, Linux x64/arm64 `.tar.gz`, plus `SHA256SUMS.txt`.
+  The version comes from the tag; `-suffix` tags are marked pre-release. Run it manually
+  (workflow_dispatch) to get `-dev.N` artifacts without publishing.
+
+```bash
+scripts/release.sh 0.2.0 --push   # bump Cargo version, commit, tag v0.2.0, push → release
+```
+
+macOS builds are ad-hoc signed; Gatekeeper will warn until Developer ID signing +
+notarization secrets are added. Windows builds are unsigned.
+
 ## Licensing (open-core)
 
 The crates in this repository are Apache-2.0. Paid Pro features (hosted integrations,

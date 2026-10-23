@@ -15,6 +15,8 @@ fn temp_repo(name: &str) -> PathBuf {
         &["config", "user.name", "Test"],
         &["config", "user.email", "test@example.com"],
         &["config", "commit.gpgsign", "false"],
+        // Windows runners default to autocrlf=true, which rewrites our fixtures.
+        &["config", "core.autocrlf", "false"],
     ] {
         git(&dir, args).unwrap();
     }
