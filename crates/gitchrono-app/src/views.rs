@@ -145,6 +145,7 @@ impl Workspace {
                         p.suggest = Some(Suggest::StashMessage);
                     }
                 })))
+                .child(tool("terminal", "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
                 .child(tool("pop", "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.run("Popping stash", Change::Refs, cx, |r| r.stash_pop(0)),
                 )))
@@ -655,6 +656,74 @@ impl Workspace {
         )
     }
 
+    fn render_terminal_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let active = self.terminals.get(self.terminal_index).cloned();
+        div()
+            .flex_none()
+            .h(px(280.))
+            .flex()
+            .flex_col()
+            .border_t_1()
+            .border_color(c(theme::BORDER))
+            .child(
+                div()
+                    .h(px(30.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .px_2()
+                    .bg(c(theme::PANEL))
+                    .border_b_1()
+                    .border_color(c(theme::BORDER))
+                    .children(self.terminals.iter().enumerate().map(|(i, term)| {
+                        let selected = i == self.terminal_index;
+                        let exited = term.read(cx).exited;
+                        div()
+                            .id(("term-tab", i))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px_2()
+                            .h(px(22.))
+                            .rounded_md()
+                            .text_xs()
+                            .cursor_pointer()
+                            .when(selected, |d| d.bg(c(theme::SELECTED)))
+                            .when(!selected, |d| d.text_color(c(theme::MUTED)).hover(|d| d.bg(c(theme::HOVER))))
+                            .child(format!("Terminal {}{}", i + 1, if exited { " (exited)" } else { "" }))
+                            .child(
+                                div()
+                                    .id(("term-close", i))
+                                    .text_color(c(theme::FAINT))
+                                    .hover(|d| d.text_color(c(theme::TEXT)))
+                                    .child("×")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.close_terminal(i, window, cx);
+                                    })),
+                            )
+                            .on_click(cx.listener(move |this, _, window, cx| this.select_terminal(i, window, cx)))
+                    }))
+                    .child(
+                        Button::new("term-new")
+                            .label("+")
+                            .xsmall()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| this.new_terminal(window, cx))),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("term-hide")
+                            .label("Hide")
+                            .xsmall()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().children(active))
+    }
+
     fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
@@ -715,6 +784,7 @@ impl Render for Workspace {
                         )
                     }),
             )
+            .when(self.terminal_open, |d| d.child(self.render_terminal_panel(cx)))
             .children(self.render_prompt(cx))
             .children(self.render_ai_settings(cx))
     }

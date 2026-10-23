@@ -1,0 +1,146 @@
+//! Remembered tabs, recent repositories and project folders, plus discovery of
+//! the repositories inside a folder.
+
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+const MAX_RECENT: usize = 15;
+/// How deep below a project folder we look for repositories.
+const SCAN_DEPTH: usize = 4;
+const SCAN_LIMIT: usize = 1000;
+const SKIP_DIRS: &[&str] = &["node_modules", "target", "vendor", "dist", "build", "Library", "Pods", "venv", "__pycache__"];
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Session {
+    #[serde(default)]
+    pub tabs: Vec<PathBuf>,
+    #[serde(default)]
+    pub active: usize,
+    #[serde(default)]
+    pub recent: Vec<PathBuf>,
+    #[serde(default)]
+    pub folders: Vec<PathBuf>,
+}
+
+impl Session {
+    fn path() -> Option<PathBuf> {
+        Some(dirs::config_dir()?.join("gitchrono").join("session.json"))
+    }
+
+    pub fn load() -> Self {
+        Self::path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self) {
+        let Some(path) = Self::path() else { return };
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).ok();
+        }
+        if let Ok(text) = serde_json::to_string_pretty(self) {
+            std::fs::write(path, text).ok();
+        }
+    }
+
+    pub fn touch_recent(&mut self, repo: &Path) {
+        self.recent.retain(|p| p != repo);
+        self.recent.insert(0, repo.to_path_buf());
+        self.recent.truncate(MAX_RECENT);
+    }
+
+    pub fn add_folder(&mut self, folder: &Path) {
+        if !self.folders.iter().any(|f| f == folder) {
+            self.folders.push(folder.to_path_buf());
+        }
+    }
+}
+
+/// A repository root: has a `.git` directory, or a `.git` file (worktrees, submodules).
+pub fn is_repo(path: &Path) -> bool {
+    path.join(".git").exists()
+}
+
+/// Repositories at or below `root`, sorted by path. Doesn't descend into a
+/// repository once found, nor into hidden or dependency directories.
+pub fn scan_repos(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    walk(root, 0, &mut found);
+    found.sort_by_key(|p| p.to_string_lossy().to_lowercase());
+    found
+}
+
+fn walk(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
+    if found.len() >= SCAN_LIMIT {
+        return;
+    }
+    if is_repo(dir) {
+        found.push(dir.to_path_buf());
+        return;
+    }
+    if depth >= SCAN_DEPTH {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut dirs: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_ref())
+        })
+        .map(|e| e.path())
+        .collect();
+    dirs.sort();
+    for d in dirs {
+        walk(&d, depth + 1, found);
+    }
+}
+
+pub fn display_name(path: &Path) -> String {
+    path.file_name().map_or_else(|| path.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// `~/…` for paths under the home directory.
+pub fn short_path(path: &Path) -> String {
+    match dirs::home_dir().and_then(|home| path.strip_prefix(home).ok().map(Path::to_path_buf)) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_nested_repos_and_skips_noise() {
+        let root = std::env::temp_dir().join(format!("gitchrono-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["a/.git", "group/b/.git", "group/b/inner/.git", "node_modules/c/.git", ".hidden/d/.git", "empty"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::create_dir_all(root.join("wt")).unwrap();
+        std::fs::write(root.join("wt/.git"), "gitdir: elsewhere").unwrap();
+
+        let found: Vec<String> =
+            scan_repos(&root).iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(found, ["a", "group/b", "wt"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn recent_is_deduplicated_and_capped() {
+        let mut s = Session::default();
+        for i in 0..20 {
+            s.touch_recent(Path::new(&format!("/r{i}")));
+        }
+        s.touch_recent(Path::new("/r5"));
+        assert_eq!(s.recent.len(), MAX_RECENT);
+        assert_eq!(s.recent[0], Path::new("/r5"));
+        assert_eq!(s.recent.iter().filter(|p| *p == Path::new("/r5")).count(), 1);
+    }
+}

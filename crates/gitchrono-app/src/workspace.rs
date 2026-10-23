@@ -17,6 +17,7 @@ use gitchrono_graph::Graph;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 
+use crate::terminal::Terminal;
 use crate::watcher::{self, Change};
 
 const LOG_LIMIT: usize = 50_000;
@@ -74,6 +75,13 @@ pub struct Prompt {
     _subscription: Option<Subscription>,
 }
 
+pub enum WorkspaceEvent {
+    /// The user asked to open another repository (handled by the tab shell).
+    OpenRequested,
+}
+
+impl EventEmitter<WorkspaceEvent> for Workspace {}
+
 pub struct Workspace {
     pub repo: Option<Arc<Repo>>,
     pub snap: Arc<Snapshot>,
@@ -104,6 +112,11 @@ pub struct Workspace {
     /// something changed and refresh once on re-activation.
     active: bool,
     pending: Option<Change>,
+    /// Whether this repository's tab is the one shown.
+    visible: bool,
+    pub terminals: Vec<Entity<Terminal>>,
+    pub terminal_index: usize,
+    pub terminal_open: bool,
     _activation: Subscription,
 }
 
@@ -113,7 +126,7 @@ impl Workspace {
         let description = cx.new(|cx| TextareaState::new(window, cx).placeholder("Description"));
         let activation = cx.observe_window_activation(window, |this, window, cx| {
             this.active = window.is_window_active();
-            if this.active {
+            if this.active && this.visible {
                 if let Some(change) = this.pending.take() {
                     this.apply_change(change, cx);
                 }
@@ -148,6 +161,10 @@ impl Workspace {
             _watcher: None,
             active: true,
             pending: None,
+            visible: true,
+            terminals: Vec::new(),
+            terminal_index: 0,
+            terminal_open: false,
             _activation: activation,
         };
         if let Some(path) = path {
@@ -182,7 +199,7 @@ impl Workspace {
                     change = change.max(next);
                 }
                 let Ok(reloaded) = this.update(cx, |this, cx| {
-                    if this.active && this.busy.is_none() {
+                    if this.active && this.visible && this.busy.is_none() {
                         this.apply_change(change, cx);
                         change == Change::Refs
                     } else {
@@ -209,20 +226,75 @@ impl Workspace {
     }
 
     pub fn prompt_open(&mut self, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Open Repository".into()),
-        });
-        cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(mut paths))) = paths.await {
-                if let Some(path) = paths.pop() {
-                    this.update(cx, |this, cx| this.open(path, cx)).ok();
-                }
+        cx.emit(WorkspaceEvent::OpenRequested);
+    }
+
+    /// Tabs in the background skip refreshes and catch up when shown again.
+    pub fn set_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        self.visible = visible;
+        if visible && self.active {
+            if let Some(change) = self.pending.take() {
+                self.apply_change(change, cx);
             }
-        })
-        .detach();
+        }
+    }
+
+    // ------------------------------------------------------------ terminal
+
+    pub fn toggle_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.terminal_open {
+            self.terminal_open = false;
+        } else if self.terminals.is_empty() {
+            self.new_terminal(window, cx);
+        } else {
+            self.terminal_open = true;
+            self.focus_terminal(window, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
+        let spawned = match Terminal::spawn(&root) {
+            Ok(spawned) => spawned,
+            Err(e) => {
+                self.error = Some(format!("Terminal: {e:#}").into());
+                cx.notify();
+                return;
+            }
+        };
+        let terminal = cx.new(|cx| Terminal::new(spawned, cx));
+        self.terminals.push(terminal);
+        self.terminal_index = self.terminals.len() - 1;
+        self.terminal_open = true;
+        self.focus_terminal(window, cx);
+        cx.notify();
+    }
+
+    pub fn select_terminal(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.terminal_index = index.min(self.terminals.len().saturating_sub(1));
+        self.focus_terminal(window, cx);
+        cx.notify();
+    }
+
+    pub fn close_terminal(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if index < self.terminals.len() {
+            self.terminals.remove(index);
+        }
+        if self.terminals.is_empty() {
+            self.terminal_open = false;
+        } else {
+            self.terminal_index = self.terminal_index.min(self.terminals.len() - 1);
+            self.focus_terminal(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn focus_terminal(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(t) = self.terminals.get(self.terminal_index) {
+            let focus = t.read(cx).focus.clone();
+            focus.focus(window, cx);
+        }
     }
 
     pub fn has_wip(&self) -> bool {
