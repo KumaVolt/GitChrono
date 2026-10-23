@@ -7,4 +7,4 @@ apt-get install -y --no-install-recommends \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
   libx11-xcb-dev libxcb1-dev libxcb-xkb-dev \
   libfontconfig1-dev libfreetype-dev \
-  libvulkan-dev libzstd-dev libssl-dev
+  libvulkan-dev libzstd-dev libssl-dev libdbus-1-dev

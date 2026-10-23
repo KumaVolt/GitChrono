@@ -1,3 +1,4 @@
+mod ai;
 mod diff_view;
 mod graph_paint;
 mod menus;

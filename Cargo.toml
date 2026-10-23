@@ -9,6 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/KumaVolt/GitChrono"
 
 [workspace.dependencies]
+gitchrono-ai = { path = "crates/gitchrono-ai" }
 gitchrono-core = { path = "crates/gitchrono-core" }
 gitchrono-graph = { path = "crates/gitchrono-graph" }
 gix = { version = "0.90", default-features = false, features = ["max-performance", "sha1", "revision", "status", "blob-diff", "index", "dirwalk", "mailmap", "parallel"] }

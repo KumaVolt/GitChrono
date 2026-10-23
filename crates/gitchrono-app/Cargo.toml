@@ -9,6 +9,7 @@ name = "gitchrono"
 path = "src/main.rs"
 
 [dependencies]
+gitchrono-ai.workspace = true
 gitchrono-core.workspace = true
 gitchrono-graph.workspace = true
 gpui-kit.workspace = true

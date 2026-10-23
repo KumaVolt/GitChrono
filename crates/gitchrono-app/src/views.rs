@@ -15,7 +15,7 @@ use crate::graph_paint::{self, Node, ROW_HEIGHT};
 use crate::menus;
 use crate::theme::{self, c};
 use crate::watcher::Change;
-use crate::workspace::{DiffSource, Selection, Workspace};
+use crate::workspace::{DiffSource, Selection, Suggest, Workspace};
 
 pub fn relative_time(secs: i64) -> String {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(secs);
@@ -129,9 +129,21 @@ impl Workspace {
                     this.open_prompt("Create branch", Some("Branches from HEAD and checks it out.".into()), Some(""), "Create & checkout", false, window, cx, |name| {
                         ("Creating branch".into(), Box::new(move |r: &gitchrono_core::Repo| r.create_branch(&name, None, true)) as crate::workspace::Op)
                     });
+                    if this.has_wip()
+                        && let Some(p) = &mut this.prompt
+                    {
+                        p.suggest = Some(Suggest::BranchName);
+                    }
                 })))
-                .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, _, cx| {
-                    this.run("Stashing", Change::Refs, cx, |r| r.stash_push(None));
+                .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| {
+                    this.open_prompt("Stash changes", Some("Message (optional)".into()), Some(""), "Stash", false, window, cx, |message| {
+                        let op = move |r: &gitchrono_core::Repo| r.stash_push(Some(message.as_str()).filter(|m| !m.is_empty()));
+                        ("Stashing".into(), Box::new(op) as crate::workspace::Op)
+                    });
+                    if let Some(p) = &mut this.prompt {
+                        p.raw = true;
+                        p.suggest = Some(Suggest::StashMessage);
+                    }
                 })))
                 .child(tool("pop", "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.run("Popping stash", Change::Refs, cx, |r| r.stash_pop(0)),
@@ -139,6 +151,13 @@ impl Workspace {
             })
             .child(div().flex_1())
             .when_some(self.busy.clone(), |bar, msg| bar.child(div().text_xs().text_color(c(theme::MUTED)).child(msg)))
+            .child(
+                Button::new("ai-settings-open")
+                    .label(if self.ai.is_some() { "✨ AI" } else { "✨ Set up AI" })
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, window, cx| this.open_ai_settings(window, cx))),
+            )
     }
 
     fn render_banners(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -533,10 +552,21 @@ impl Workspace {
                     .border_color(c(theme::BORDER))
                     .child(Input::new(&self.summary))
                     .child(Textarea::new(&self.description).h(px(90.)))
+                    .when_some(self.ai_usage.clone(), |d, usage| {
+                        d.child(div().text_xs().text_color(c(theme::MUTED)).child(format!("Last AI request: {usage}")))
+                    })
                     .child(
                         div()
                             .flex()
                             .gap_2()
+                            .child(
+                                Button::new("ai-commit")
+                                    .label(self.ai_busy.clone().unwrap_or_else(|| "✨ Write message".into()))
+                                    .small()
+                                    .ghost()
+                                    .disabled(self.ai_busy.is_some() || st.staged.is_empty())
+                                    .on_click(cx.listener(|this, _, window, cx| this.generate_commit_message(window, cx))),
+                            )
                             .child(
                                 Button::new("amend")
                                     .label(if self.amend { "✓ Amend" } else { "Amend" })
@@ -598,6 +628,17 @@ impl Workspace {
                                 .flex()
                                 .justify_end()
                                 .gap_2()
+                                .when(prompt.suggest.is_some() && self.ai.is_some(), |d| {
+                                    d.child(
+                                        Button::new("prompt-suggest")
+                                            .label(self.ai_busy.clone().unwrap_or_else(|| "✨ Suggest".into()))
+                                            .small()
+                                            .ghost()
+                                            .disabled(self.ai_busy.is_some())
+                                            .on_click(cx.listener(|this, _, window, cx| this.suggest_for_prompt(window, cx))),
+                                    )
+                                    .child(div().flex_1())
+                                })
                                 .child(Button::new("prompt-cancel").label("Cancel").small().ghost().on_click(cx.listener(
                                     |this, _, _, cx| this.cancel_prompt(cx),
                                 )))
@@ -675,5 +716,6 @@ impl Render for Workspace {
                     }),
             )
             .children(self.render_prompt(cx))
+            .children(self.render_ai_settings(cx))
     }
 }

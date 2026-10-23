@@ -54,12 +54,22 @@ pub struct DiffView {
     pub selected: HashSet<(usize, usize)>,
 }
 
+/// What an AI "Suggest" button in a prompt fills in.
+#[derive(Clone, Copy)]
+pub enum Suggest {
+    BranchName,
+    StashMessage,
+}
+
 pub struct Prompt {
     pub title: SharedString,
     pub message: Option<SharedString>,
     pub input: Option<Entity<InputState>>,
     pub confirm: SharedString,
     pub danger: bool,
+    pub suggest: Option<Suggest>,
+    /// Keep the text as typed (and allow it empty) instead of treating it as a ref name.
+    pub raw: bool,
     action: Option<Box<dyn FnOnce(String) -> (String, Op)>>,
     _subscription: Option<Subscription>,
 }
@@ -79,6 +89,12 @@ pub struct Workspace {
     pub description: Entity<TextareaState>,
     pub amend: bool,
     pub list_scroll: UniformListScrollHandle,
+    pub ai: Option<gitchrono_ai::AiConfig>,
+    pub ai_settings: Option<crate::ai::AiSettings>,
+    pub ai_busy: Option<SharedString>,
+    /// Token usage of the last AI request, shown so costs stay visible.
+    pub ai_usage: Option<SharedString>,
+    pub(crate) ai_task: Option<Task<()>>,
     /// `GITCHRONO_SELECT=<row>[:diff]`, applied once after the first load (for headless screenshots).
     debug_select: Option<(usize, bool)>,
     load_task: Option<Task<()>>,
@@ -118,6 +134,11 @@ impl Workspace {
             description,
             amend: false,
             list_scroll: UniformListScrollHandle::new(),
+            ai: gitchrono_ai::AiConfig::load().filter(|c| c.enabled),
+            ai_settings: None,
+            ai_busy: None,
+            ai_usage: None,
+            ai_task: None,
             debug_select: std::env::var("GITCHRONO_SELECT").ok().and_then(|v| {
                 let (row, diff) = v.split_once(':').map_or((v.as_str(), false), |(r, _)| (r, true));
                 Some((row.parse().ok()?, diff))
@@ -480,6 +501,8 @@ impl Workspace {
             input,
             confirm: confirm.to_string().into(),
             danger,
+            suggest: None,
+            raw: false,
             action: Some(Box::new(action)),
             _subscription: subscription,
         });
@@ -506,13 +529,14 @@ impl Workspace {
 
     pub fn submit_prompt(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(mut prompt) = self.prompt.take() else { return };
-        // Prompts ask for ref names: git rejects whitespace, so join words with `-`.
-        let text = prompt
-            .input
-            .as_ref()
-            .map(|i| i.read(cx).value().split_whitespace().collect::<Vec<_>>().join("-"))
-            .unwrap_or_default();
-        if prompt.input.is_some() && text.is_empty() {
+        let value = prompt.input.as_ref().map(|i| i.read(cx).value()).unwrap_or_default();
+        let text = if prompt.raw {
+            value.trim().to_string()
+        } else {
+            // Ref names: git rejects whitespace, so join words with `-`.
+            value.split_whitespace().collect::<Vec<_>>().join("-")
+        };
+        if prompt.input.is_some() && text.is_empty() && !prompt.raw {
             self.prompt = Some(prompt);
             return;
         }

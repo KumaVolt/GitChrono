@@ -173,6 +173,21 @@ impl Repo {
         Ok(parse_patch(&change.path, &out))
     }
 
+    /// The whole staged patch (what the next commit contains).
+    pub fn staged_patch(&self) -> Result<String> {
+        self.git(&["diff", "--no-color", "--cached", "-M"])
+    }
+
+    /// Every working-tree change against HEAD, plus the names of untracked files.
+    pub fn workdir_patch(&self) -> Result<String> {
+        let mut out = self.git(&["diff", "--no-color", "-M", "HEAD"]).or_else(|_| self.git(&["diff", "--no-color", "--cached"]))?;
+        let untracked = self.git(&["ls-files", "--others", "--exclude-standard"])?;
+        for path in untracked.lines().filter(|l| !l.is_empty()) {
+            out.push_str(&format!("diff --git a/{path} b/{path}\nnew file (untracked)\n"));
+        }
+        Ok(out)
+    }
+
     pub fn stage(&self, paths: &[&str]) -> Result<()> {
         let mut args = vec!["add", "-A", "--"];
         args.extend_from_slice(paths);

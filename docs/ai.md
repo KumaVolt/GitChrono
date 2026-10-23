@@ -77,6 +77,17 @@ thin margin:
 For reference: GitKraken bundles ~250k tokens/week with paid plans on Gemini Flash; we're
 pay-as-you-go with no subscription.
 
+## Status
+
+**Shipped (BYOK):** crate `gitchrono-ai`.
+- Providers: Mistral, OpenAI, Anthropic, Gemini, OpenRouter and Ollama, plus any OpenAI-compatible endpoint via a custom URL.
+- Commit message ("✨ Write message" in the staging panel), branch name and stash message ("✨ Suggest" in those prompts).
+- Keys go in the OS keychain, with env-var fallback. Settings live in `<config dir>/gitchrono/ai.json`.
+- Token usage of the last request is shown under the commit box.
+- Try it from the CLI: `cargo run -p gitchrono-ai --example commit_message -- <repo>`.
+
+**Next:** explain commit, then the hosted credits provider once the Kumavolt backend exists.
+
 ## Features, prioritized
 
 ### Phase 1 — cheap, high value
