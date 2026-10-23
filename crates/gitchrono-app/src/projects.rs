@@ -127,7 +127,7 @@ mod tests {
         std::fs::write(root.join("wt/.git"), "gitdir: elsewhere").unwrap();
 
         let found: Vec<String> =
-            scan_repos(&root).iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().into_owned()).collect();
+            scan_repos(&root).iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(found, ["a", "group/b", "wt"]);
         std::fs::remove_dir_all(&root).unwrap();
     }
