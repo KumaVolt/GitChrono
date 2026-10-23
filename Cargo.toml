@@ -1,0 +1,21 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/gitchrono/gitchrono"
+
+[workspace.dependencies]
+gitchrono-core = { path = "crates/gitchrono-core" }
+gitchrono-graph = { path = "crates/gitchrono-graph" }
+gix = { version = "0.90", default-features = false, features = ["max-performance", "sha1", "revision", "status", "blob-diff", "index", "dirwalk", "mailmap", "parallel"] }
+gpui-kit = "0.8"
+anyhow = "1"
+thiserror = "2"
+smol = "2"
+
+[profile.dev.package."*"]
+opt-level = 2
