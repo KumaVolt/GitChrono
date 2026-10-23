@@ -882,5 +882,6 @@ impl Render for Workspace {
             .when(self.terminal_open, |d| d.child(self.render_terminal_panel(cx)))
             .children(self.render_prompt(cx))
             .children(self.render_ai_settings(cx))
+            .children(self.render_rebase_editor(cx))
     }
 }

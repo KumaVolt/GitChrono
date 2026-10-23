@@ -6,6 +6,7 @@ use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use crate::highlight::{Highlights, display_text};
 use crate::theme::{self, c};
 use crate::workspace::{DiffView, Workspace};
 
@@ -53,24 +54,24 @@ impl Workspace {
                     .into_any_element(),
             );
 
+            if self.diff_split {
+                for (left, right) in split_pairs(&hunk.lines) {
+                    rows.push(
+                        div()
+                            .flex()
+                            .w_full()
+                            .child(self.split_cell(view, h, left, partial.is_some(), true, cx))
+                            .child(div().w_px().flex_none().h_full().bg(c(theme::BORDER)))
+                            .child(self.split_cell(view, h, right, partial.is_some(), false, cx))
+                            .into_any_element(),
+                    );
+                }
+                continue;
+            }
             for (l, line) in hunk.lines.iter().enumerate() {
-                let (bg, sign) = match line.kind {
-                    DiffLineKind::Add => (Some(theme::ADD_BG), "+"),
-                    DiffLineKind::Del => (Some(theme::DEL_BG), "-"),
-                    DiffLineKind::Context => (None, " "),
-                };
+                let (bg, sign) = line_style(line.kind);
                 let pickable = partial.is_some() && line.kind != DiffLineKind::Context;
                 let picked = view.selected.contains(&(h, l));
-                let num = |n: Option<u32>| {
-                    div()
-                        .w(px(44.))
-                        .flex_none()
-                        .text_right()
-                        .pr_2()
-                        .text_color(c(theme::FAINT))
-                        .child(n.map(|n| n.to_string()).unwrap_or_default())
-                };
-                let content = line.content.trim_end_matches('\r').replace('\t', "    ");
                 rows.push(
                     div()
                         .id(("dl", h * 1_000_000 + l))
@@ -84,10 +85,10 @@ impl Workspace {
                                 .hover(|s| s.bg(c(theme::HOVER)))
                                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_line(h, l, cx)))
                         })
-                        .child(num(line.old_no))
-                        .child(num(line.new_no))
+                        .child(line_number(line.old_no))
+                        .child(line_number(line.new_no))
                         .child(div().w(px(14.)).flex_none().child(sign))
-                        .child(div().whitespace_nowrap().child(content))
+                        .child(code(&view.highlights, h, l, &line.content))
                         .into_any_element(),
                 );
             }
@@ -134,6 +135,16 @@ impl Workspace {
                     cx.notify();
                 })))
             })
+            .child(
+                Button::new("diff-layout")
+                    .label(if self.diff_split { "Unified" } else { "Split" })
+                    .xsmall()
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.diff_split = !this.diff_split;
+                        cx.notify();
+                    })),
+            )
             .child(div().text_xs().text_color(c(theme::ADD)).child(format!("+{}", view.diff.additions)))
             .child(div().text_xs().text_color(c(theme::DEL)).child(format!("-{}", view.diff.deletions)))
             .child(Button::new("close-diff").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
@@ -159,6 +170,33 @@ impl Workspace {
                     .text_color(c(theme::TEXT))
                     .children(rows),
             )
+    }
+
+    /// One side of a split row; `line` is the index within the hunk, if any.
+    fn split_cell(&self, view: &DiffView, h: usize, line: Option<usize>, partial: bool, left: bool, cx: &mut Context<Self>) -> AnyElement {
+        let Some(l) = line else {
+            return div().flex_1().min_w_0().bg(c(theme::PANEL)).into_any_element();
+        };
+        let diff_line = &view.diff.hunks[h].lines[l];
+        let (bg, sign) = line_style(diff_line.kind);
+        let pickable = partial && diff_line.kind != DiffLineKind::Context;
+        let picked = view.selected.contains(&(h, l));
+        let number = if left { diff_line.old_no } else { diff_line.new_no };
+        div()
+            .id((if left { "sl" } else { "sr" }, h * 1_000_000 + l))
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .overflow_hidden()
+            .when_some(bg, |d, bg| d.bg(c(bg)))
+            .when(picked, |d| d.bg(c(theme::SELECTED)))
+            .when(pickable, |d| {
+                d.cursor_pointer().hover(|s| s.bg(c(theme::HOVER))).on_click(cx.listener(move |this, _, _, cx| this.toggle_line(h, l, cx)))
+            })
+            .child(line_number(number))
+            .child(div().w(px(14.)).flex_none().child(sign))
+            .child(code(&view.highlights, h, l, &diff_line.content))
+            .into_any_element()
     }
 
     fn selected_hunks(&self) -> Vec<usize> {
@@ -193,5 +231,64 @@ impl Workspace {
             cx,
             move |r| r.apply_patch(&patch, gitchrono_core::ApplyMode::Discard),
         );
+    }
+}
+
+fn line_style(kind: DiffLineKind) -> (Option<u32>, &'static str) {
+    match kind {
+        DiffLineKind::Add => (Some(theme::ADD_BG), "+"),
+        DiffLineKind::Del => (Some(theme::DEL_BG), "-"),
+        DiffLineKind::Context => (None, " "),
+    }
+}
+
+fn line_number(n: Option<u32>) -> Div {
+    div().w(px(44.)).flex_none().text_right().pr_2().text_color(c(theme::FAINT)).child(n.map(|n| n.to_string()).unwrap_or_default())
+}
+
+/// The line's text, syntax-colored when highlights exist.
+fn code(highlights: &Highlights, h: usize, l: usize, content: &str) -> Div {
+    let text = display_text(content);
+    let styled = match highlights.get(&(h, l)) {
+        Some(spans) => StyledText::new(text)
+            .with_highlights(spans.iter().map(|(range, color)| (range.clone(), HighlightStyle { color: Some(*color), ..Default::default() }))),
+        None => StyledText::new(text),
+    };
+    div().whitespace_nowrap().child(styled)
+}
+
+/// Rows for a split view: context on both sides, runs of deletions paired
+/// with the additions that follow them.
+fn split_pairs(lines: &[gitchrono_core::DiffLine]) -> Vec<(Option<usize>, Option<usize>)> {
+    let mut rows = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].kind == DiffLineKind::Context {
+            rows.push((Some(i), Some(i)));
+            i += 1;
+            continue;
+        }
+        let dels: Vec<usize> = (i..lines.len()).take_while(|&j| lines[j].kind == DiffLineKind::Del).collect();
+        let after = i + dels.len();
+        let adds: Vec<usize> = (after..lines.len()).take_while(|&j| lines[j].kind == DiffLineKind::Add).collect();
+        for k in 0..dels.len().max(adds.len()) {
+            rows.push((dels.get(k).copied(), adds.get(k).copied()));
+        }
+        i = after + adds.len();
+    }
+    rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_pairs;
+    use gitchrono_core::parse_patch;
+
+    #[test]
+    fn pairs_deletions_with_following_additions() {
+        let patch = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,4 @@\n a\n-b\n-c\n+B\n d\n+e\n";
+        let diff = parse_patch("f", patch);
+        let rows = split_pairs(&diff.hunks[0].lines);
+        assert_eq!(rows, vec![(Some(0), Some(0)), (Some(1), Some(3)), (Some(2), None), (Some(4), Some(4)), (None, Some(5))]);
     }
 }

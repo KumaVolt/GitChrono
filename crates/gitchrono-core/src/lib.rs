@@ -6,12 +6,14 @@
 mod cli;
 mod diff;
 mod model;
+mod rebase;
 mod repo;
 mod undo;
 
 pub use cli::{GitError, ResetMode, git};
 pub use diff::{ApplyMode, parse_patch, partial_patch};
 pub use model::*;
+pub use rebase::{RebaseAction, RebaseStep};
 pub use repo::Repo;
 pub use undo::{RefState, UndoEntry};
 

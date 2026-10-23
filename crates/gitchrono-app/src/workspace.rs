@@ -60,6 +60,7 @@ pub struct DiffView {
     pub diff: FileDiff,
     /// `(hunk, line)` pairs picked for line-level staging.
     pub selected: HashSet<(usize, usize)>,
+    pub highlights: Arc<crate::highlight::Highlights>,
 }
 
 /// What an AI "Suggest" button in a prompt fills in.
@@ -145,6 +146,9 @@ pub struct Workspace {
     pub search: Option<GraphSearch>,
     /// Open the worktree that the next reload discovers (after "create worktree").
     open_new_worktree: bool,
+    pub rebase_editor: Option<crate::rebase_ui::RebaseEditor>,
+    /// Side-by-side instead of unified diffs.
+    pub diff_split: bool,
     pub file_history: Option<crate::history::FileHistory>,
     pub blame: Option<crate::history::BlameView>,
     pub undo_stack: Vec<UndoEntry>,
@@ -204,6 +208,8 @@ impl Workspace {
             terminal_open: false,
             search: None,
             open_new_worktree: false,
+            rebase_editor: None,
+            diff_split: std::env::var_os("GITCHRONO_SPLIT").is_some(),
             file_history: None,
             blame: None,
             undo_stack: Vec::new(),
@@ -564,7 +570,10 @@ impl Workspace {
         let task = cx.background_spawn(async move {
             let status = repo.status()?;
             let diff = match diff_source {
-                Some(DiffSource::Workdir { change, staged }) => Some(repo.workdir_file_diff(&change, staged)),
+                Some(DiffSource::Workdir { change, staged }) => Some(repo.workdir_file_diff(&change, staged).map(|diff| {
+                    let highlights = crate::highlight::highlight_diff(&change.path, &diff);
+                    (diff, highlights)
+                })),
                 _ => None,
             };
             anyhow::Ok((status, diff))
@@ -578,11 +587,12 @@ impl Workspace {
                         if this.selection == Selection::Wip && !this.has_wip() {
                             this.selection = Selection::None;
                         }
-                        if let Some(Ok(diff)) = diff {
+                        if let Some(Ok((diff, highlights))) = diff {
                             if diff.hunks.is_empty() && !diff.binary {
                                 this.diff = None;
                             } else if let Some(view) = this.diff.as_mut() {
                                 view.diff = diff;
+                                view.highlights = Arc::new(highlights);
                                 view.selected.clear();
                             }
                         }
@@ -727,16 +737,26 @@ impl Workspace {
         let Some(repo) = self.repo.clone() else { return };
         let load = source.clone();
         let task = cx.background_spawn(async move {
-            match load {
-                DiffSource::Commit { id, path } => repo.commit_file_diff(&id, &path),
-                DiffSource::Workdir { change, staged } => repo.workdir_file_diff(&change, staged),
-            }
+            let (diff, path) = match load {
+                DiffSource::Commit { id, path } => (repo.commit_file_diff(&id, &path)?, path),
+                DiffSource::Workdir { change, staged } => (repo.workdir_file_diff(&change, staged)?, change.path),
+            };
+            let highlights = crate::highlight::highlight_diff(&path, &diff);
+            anyhow::Ok((diff, highlights))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok(diff) => this.diff = Some(DiffView { title: title.into(), source, diff, selected: HashSet::new() }),
+                    Ok((diff, highlights)) => {
+                        this.diff = Some(DiffView {
+                            title: title.into(),
+                            source,
+                            diff,
+                            selected: HashSet::new(),
+                            highlights: Arc::new(highlights),
+                        })
+                    }
                     Err(e) => this.error = Some(format!("{e:#}").into()),
                 }
                 cx.notify();

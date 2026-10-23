@@ -87,6 +87,10 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) ->
         .separator()
         .item(op_item("Cherry-pick commit", "Cherry-picking", Change::Refs, ws, id.clone(), |r, id| r.cherry_pick(id)))
         .item(op_item("Revert commit", "Reverting", Change::Refs, ws, id.clone(), |r, id| r.revert(id)))
+        .item({
+            let base = id.clone();
+            item("Interactive rebase from here…", ws, move |this, window, cx| this.open_rebase_editor(base.clone(), window, cx))
+        })
         .separator()
         .item(reset(ResetMode::Soft, &format!("Reset {target} here — soft")))
         .item(reset(ResetMode::Mixed, &format!("Reset {target} here — mixed")))

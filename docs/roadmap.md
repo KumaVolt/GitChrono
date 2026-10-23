@@ -34,9 +34,9 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 |---|---|
 | 3-way merge conflict editor | ⬜ (gpui-component has a diff/conflict widget) |
 | Drag-and-drop branch → merge/rebase | ⬜ |
-| Interactive rebase (reorder/squash/edit) | ⬜ |
+| Interactive rebase (reorder/squash/edit) | ✅ pick, reword, squash, fixup, drop, reorder; undoable |
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
-| Side-by-side diff, syntax highlighting | ⬜ (tree-sitter feature) |
+| Side-by-side diff, syntax highlighting | ✅ syntect (pure Rust); Split/Unified toggle, line staging in both |
 | Undo / redo of operations | ✅ ref snapshots before/after every op; soft undo for commits, `reset --keep` otherwise |
 | Submodules, LFS, worktrees | 🟡 worktrees ✅ (sidebar, create from branch/new, open in tab, remove); submodules & LFS todo |
 | Commit signing indicators | ⬜ |
@@ -67,9 +67,9 @@ Ordered by how much a daily user misses them.
 | Worktrees | create/open/remove, WIP row per worktree, tab per worktree | ✅ (no WIP row per worktree yet) |
 | Undo / redo | reset, rebase, checkout, commit via reflog | ✅ |
 | File history + blame | history follows renames | ✅ |
-| Split / inline / hunk diff views, syntax highlighting | | ⬜ |
+| Split / inline / hunk diff views, syntax highlighting | | ✅ |
 | Merge conflict tool | 3-way, AI-assisted resolution | ⬜ |
-| Interactive rebase editor | reorder, squash, reword, drop | ⬜ |
+| Interactive rebase editor | reorder, squash, reword, drop | ✅ |
 | Drag a branch onto another | merge / rebase / PR | ⬜ |
 | Select several commits | combined diff, patch, cherry-pick range | ⬜ |
 | Hide / solo / pin branches | | ⬜ |
