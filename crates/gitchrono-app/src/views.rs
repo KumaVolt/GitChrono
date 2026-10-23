@@ -314,7 +314,15 @@ impl Workspace {
 
         if wip && row == 0 {
             let selected = self.selection == Selection::Wip;
-            let head_lane = self.graph.rows.first().map_or(0, |r| r.lane);
+            // Hang the WIP node above whatever HEAD points at, not just the newest commit.
+            let head = self.snap.refs.head_id.as_deref();
+            let head_lane = self
+                .snap
+                .commits
+                .iter()
+                .position(|c| Some(c.id.as_str()) == head)
+                .and_then(|i| self.graph.rows.get(i))
+                .map_or(0, |r| r.lane);
             let n = self.status.change_count();
             return base
                 .when(selected, |d| d.bg(c(theme::SELECTED)))

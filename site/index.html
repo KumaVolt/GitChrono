@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GitChrono — a fast, native Git client</title>
+  <meta name="description" content="GitChrono is a fast, native Git client written in Rust. A GitKraken-style commit graph, line-level staging and diffs, GPU-rendered. Free and open-core.">
+  <meta property="og:title" content="GitChrono — a fast, native Git client">
+  <meta property="og:description" content="Commit graph, line-level staging and diffs. Written in Rust, GPU-rendered, open-core.">
+  <meta property="og:image" content="https://gitchrono.com/assets/screenshot.png">
+  <meta property="og:url" content="https://gitchrono.com/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #111318;
+      --bg-2: #171a20;
+      --panel: #1d2128;
+      --border: #2a2f39;
+      --text: #e6e8ec;
+      --muted: #9aa1ad;
+      --faint: #6b717d;
+      --cyan: #15a0bf;
+      --blue: #2f7df6;
+      --violet: #9b4fe0;
+      --pink: #e0457b;
+      --amber: #e3b341;
+      --green: #3fb950;
+      --radius: 14px;
+      --max: 1160px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.6 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    code, .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+    .split > *, .grid > *, .oc > *, .downloads > * { min-width: 0; }
+    body { overflow-x: hidden; }
+
+    /* nav */
+    nav { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: rgba(17, 19, 24, 0.72); border-bottom: 1px solid rgba(42, 47, 57, 0.6); }
+    nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+    .brand svg { width: 26px; height: 26px; }
+    nav .links { display: flex; gap: 22px; margin-left: auto; color: var(--muted); font-size: 14px; font-weight: 500; }
+    nav .links a:hover { color: var(--text); }
+
+    /* hero */
+    .hero { position: relative; padding: 96px 0 40px; text-align: center; overflow: hidden; }
+    .hero::before {
+      content: ""; position: absolute; inset: -40% -20% auto; height: 760px; z-index: -1;
+      background:
+        radial-gradient(40% 50% at 30% 40%, rgba(47, 125, 246, 0.22), transparent 70%),
+        radial-gradient(35% 45% at 70% 35%, rgba(155, 79, 224, 0.20), transparent 70%),
+        radial-gradient(30% 40% at 50% 70%, rgba(21, 160, 191, 0.16), transparent 70%);
+    }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-2); color: var(--muted); font-size: 13px; font-weight: 500; }
+    .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+    h1 { margin: 22px auto 18px; max-width: 880px; font-size: clamp(40px, 6.4vw, 76px); line-height: 1.04; letter-spacing: -0.035em; font-weight: 800; }
+    h1 .grad { background: linear-gradient(90deg, var(--cyan), var(--blue) 35%, var(--violet) 70%, var(--pink)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .lede { margin: 0 auto; max-width: 640px; color: var(--muted); font-size: clamp(17px, 2vw, 20px); }
+    .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 34px 0 14px; }
+    .btn { display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 22px; border-radius: 12px; font-weight: 600; font-size: 15px; transition: transform .15s ease, background .15s ease, border-color .15s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn svg { width: 18px; height: 18px; }
+    .btn-primary { background: var(--text); color: #0d0f13; }
+    .btn-primary:hover { background: #fff; }
+    .btn-ghost { border: 1px solid var(--border); background: var(--bg-2); }
+    .btn-ghost:hover { border-color: #3a404c; }
+    .fine { color: var(--faint); font-size: 13px; }
+
+    .shot { position: relative; margin: 56px auto 0; max-width: 1100px; }
+    .shot::before { content: ""; position: absolute; inset: 8% 6% -4%; z-index: -1; filter: blur(60px); background: linear-gradient(90deg, rgba(21,160,191,.35), rgba(47,125,246,.3), rgba(155,79,224,.35)); border-radius: 40px; }
+    .shot img { display: block; width: 100%; height: auto; border-radius: 14px; border: 1px solid #333945; box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+
+    /* stats */
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 80px auto 0; max-width: 900px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .stat { background: var(--bg-2); padding: 26px 24px; text-align: center; }
+    .stat b { display: block; font-size: 30px; letter-spacing: -0.02em; }
+    .stat span { color: var(--muted); font-size: 14px; }
+
+    /* sections */
+    section { padding: 110px 0 0; }
+    .kicker { color: var(--blue); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    h2 { margin: 10px 0 14px; font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -0.025em; }
+    .sub { max-width: 620px; color: var(--muted); font-size: 18px; margin: 0; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
+    .card { position: relative; padding: 26px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--panel), var(--bg-2)); }
+    .card .ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; margin-bottom: 18px; background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); }
+    .card .ico svg { width: 20px; height: 20px; }
+    .card h3 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.01em; }
+    .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+    /* architecture */
+    .split { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; margin-top: 44px; }
+    .code { padding: 22px 24px; border: 1px solid var(--border); border-radius: var(--radius); background: #0d0f13; font-size: 13.5px; line-height: 1.75; color: #c9ced6; overflow-x: auto; }
+    .code .c { color: var(--faint); }
+    .code .k { color: var(--violet); }
+    .code .s { color: var(--green); }
+    .code .f { color: var(--blue); }
+    .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+    .list li { display: grid; grid-template-columns: 26px 1fr; gap: 12px; }
+    .list .n { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-size: 12px; font-weight: 700; color: #0d0f13; background: var(--c); }
+    .list b { display: block; margin-bottom: 2px; }
+    .list span { color: var(--muted); font-size: 15px; }
+
+    /* downloads */
+    .downloads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 44px; }
+    .dl { display: flex; flex-direction: column; gap: 6px; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); transition: border-color .15s ease, transform .15s ease; }
+    .dl:hover { border-color: #3d4452; transform: translateY(-2px); }
+    .dl.recommended { border-color: color-mix(in srgb, var(--blue) 60%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent) inset; }
+    .dl svg { width: 26px; height: 26px; margin-bottom: 8px; color: var(--text); }
+    .dl b { font-size: 16px; }
+    .dl span { color: var(--muted); font-size: 13px; }
+    .dl .file { margin-top: 6px; font-size: 12px; color: var(--faint); word-break: break-all; }
+    .release-meta { margin-top: 18px; color: var(--faint); font-size: 14px; }
+    .release-meta a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+
+    /* open core */
+    .oc { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 44px; }
+    .tier { padding: 28px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); }
+    .tier h3 { margin: 0 0 4px; font-size: 20px; }
+    .tier .price { color: var(--muted); margin-bottom: 18px; }
+    .tier ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; color: var(--muted); font-size: 15px; }
+    .tier li::before { content: "✓"; color: var(--green); font-weight: 700; margin-right: 10px; }
+    .tier.pro li::before { content: "◆"; color: var(--amber); }
+    .tier.pro { background: linear-gradient(180deg, rgba(227, 179, 65, 0.06), var(--bg-2) 60%); border-color: rgba(227, 179, 65, 0.25); }
+    .badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; vertical-align: middle; color: var(--amber); border: 1px solid rgba(227, 179, 65, 0.4); }
+
+    footer { margin-top: 120px; padding: 40px 0 56px; border-top: 1px solid var(--border); color: var(--faint); font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+    footer .links { margin-left: auto; display: flex; gap: 20px; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 900px) {
+      .grid, .downloads { grid-template-columns: repeat(2, 1fr); }
+      .split, .oc { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .wrap { padding: 0 16px; }
+      .code { font-size: 12px; }
+      nav .links a:not(.gh) { display: none; }
+      .grid, .downloads, .stats { grid-template-columns: 1fr; }
+      .hero { padding-top: 64px; }
+      section { padding-top: 80px; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M10 6v20M10 13c0 5 12 3 12 9" fill="none" stroke="#15a0bf" stroke-width="2.6" stroke-linecap="round"/>
+          <circle cx="10" cy="7" r="3.6" fill="#15a0bf"/><circle cx="10" cy="25" r="3.6" fill="#2f7df6"/><circle cx="22" cy="22" r="3.6" fill="#9b4fe0"/>
+        </svg>
+        GitChrono
+      </a>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#download">Download</a>
+        <a class="gh" href="https://github.com/KumaVolt/GitChrono">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap">
+      <span class="eyebrow"><span class="dot"></span> Open source · written in Rust</span>
+      <h1>The Git client that <span class="grad">keeps up with you.</span></h1>
+      <p class="lede">GitChrono gives you a GitKraken-style commit graph, line-by-line staging and instant diffs — in a native app that opens huge repositories in seconds.</p>
+      <div class="cta">
+        <a class="btn btn-primary" id="hero-download" href="#download">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 20h14"/></svg>
+          <span id="hero-download-label">Download GitChrono</span>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/KumaVolt/GitChrono">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+          Star on GitHub
+        </a>
+      </div>
+      <div class="fine" id="hero-fine">macOS · Windows · Linux — free</div>
+
+      <div class="shot">
+        <img src="assets/screenshot.png" width="2000" height="1296" alt="GitChrono showing a colorful commit graph with branches, tags and a commit detail panel">
+      </div>
+
+      <div class="stats">
+        <div class="stat"><b>85,767</b><span>commits of git.git loaded in ~2.8 s</span></div>
+        <div class="stat"><b>80 ms</b><span>to lay out the full graph</span></div>
+        <div class="stat"><b>&lt;1%</b><span>CPU in the background, even during builds</span></div>
+      </div>
+    </div>
+  </header>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="kicker">Features</div>
+      <h2>Everything you reach for, every day.</h2>
+      <p class="sub">The workflow you know from GitKraken, rebuilt from scratch as a native app with nothing in between you and your repository.</p>
+      <div class="grid">
+        <div class="card" style="--c: var(--cyan)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M6 9c0 3 12 0 12 3"/></svg></div>
+          <h3>A graph you can read</h3>
+          <p>Every branch, remote, tag and stash in one colorful, topologically ordered graph — with HEAD and your uncommitted work right on top.</p>
+        </div>
+        <div class="card" style="--c: var(--green)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M4 12h16M4 18h7"/><path d="m16 16 2 2 4-4"/></svg></div>
+          <h3>Stage lines, not just files</h3>
+          <p>Click the exact lines you want, or stage, unstage and discard whole hunks. Perfect commits without touching the terminal.</p>
+        </div>
+        <div class="card" style="--c: var(--blue)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+          <h3>Native speed</h3>
+          <p>Rust from top to bottom, GPU-rendered with gpui. History comes straight from gitoxide, so even giant repos open in seconds.</p>
+        </div>
+        <div class="card" style="--c: var(--violet)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h4"/></svg></div>
+          <h3>Right-click anything</h3>
+          <p>Checkout, branch, tag, merge, rebase, cherry-pick, revert and reset straight from the graph, the sidebar or the file list.</p>
+        </div>
+        <div class="card" style="--c: var(--pink)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+          <h3>Always up to date</h3>
+          <p>Edit in your editor, commit in the terminal — GitChrono notices instantly, and stays quiet while it's in the background.</p>
+        </div>
+        <div class="card" style="--c: var(--amber)">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 4 7v5c0 5 3.5 8 8 9 4.5-1 8-4 8-9V7z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h3>Behaves exactly like git</h3>
+          <p>Writes go through your own git, so hooks, SSH keys, credential helpers and commit signing all just work.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="kicker">How it works</div>
+      <h2>Fast where it matters, faithful everywhere else.</h2>
+      <div class="split">
+        <ul class="list">
+          <li style="--c: var(--cyan)"><span class="n">1</span><div><b>Reads in-process with gitoxide</b><span>History walks, refs and commit trees are read directly from the object database — no subprocess per commit.</span></div></li>
+          <li style="--c: var(--blue)"><span class="n">2</span><div><b>Writes through your git</b><span>Commit, push, rebase and stash run your installed <code>git</code>, so every repository behaves exactly like it does in the terminal.</span></div></li>
+          <li style="--c: var(--violet)"><span class="n">3</span><div><b>Painted on the GPU</b><span>The graph and lists are virtualized and drawn with gpui, the framework behind the Zed editor.</span></div></li>
+        </ul>
+        <pre class="code"><span class="c">// gitchrono-core: the history walk</span>
+<span class="k">let</span> walk = topo::<span class="f">Builder</span>::<span class="f">new</span>(&amp;repo.objects)
+    .<span class="f">with_tips</span>(tips)
+    .<span class="f">sorting</span>(topo::Sorting::TopoOrder)
+    .<span class="f">with_commit_graph</span>(repo.<span class="f">commit_graph_if_enabled</span>()?)
+    .<span class="f">build</span>()?;
+
+<span class="c">// …and a partial patch for line staging</span>
+repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
+<span class="c">//   → git apply --cached --recount -</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <div class="kicker">Download</div>
+      <h2>Get GitChrono.</h2>
+      <p class="sub">Free for personal and commercial use. Requires <code>git</code> 2.40 or newer on your PATH.</p>
+      <div class="downloads">
+        <a class="dl" data-os="mac" data-match="macos-universal.dmg" href="https://github.com/KumaVolt/GitChrono/releases/latest">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31a4.04 4.04 0 0 0-3.18-1.72c-1.35-.14-2.64.8-3.33.8-.69 0-1.75-.78-2.88-.76A4.27 4.27 0 0 0 5.27 9.8c-1.55 2.69-.4 6.66 1.11 8.84.74 1.07 1.62 2.26 2.77 2.22 1.11-.05 1.53-.72 2.88-.72 1.34 0 1.72.72 2.89.7 1.2-.02 1.95-1.08 2.68-2.15.85-1.24 1.2-2.44 1.21-2.5-.03-.01-2.32-.89-2.34-3.53ZM14.2 6.12c.6-.74 1.02-1.76.9-2.78-.87.04-1.94.59-2.56 1.32-.56.64-1.05 1.68-.92 2.67.98.08 1.97-.49 2.58-1.21Z"/></svg>
+          <b>macOS</b><span>Universal · Apple Silicon &amp; Intel</span><span class="file mono">.dmg</span>
+        </a>
+        <a class="dl" data-os="win" data-match="windows-x86_64.zip" href="https://github.com/KumaVolt/GitChrono/releases/latest">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3zm0 13L10.5 19.6v-7H3zm8.5 1.2L21 21v-8.4h-9.5zm0-15.4v7.2H21V3z"/></svg>
+          <b>Windows</b><span>64-bit</span><span class="file mono">.zip</span>
+        </a>
+        <a class="dl" data-os="linux" data-match="linux-x86_64.tar.gz" href="https://github.com/KumaVolt/GitChrono/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
+          <b>Linux</b><span>x86_64</span><span class="file mono">.tar.gz</span>
+        </a>
+        <a class="dl" data-os="linux-arm" data-match="linux-aarch64.tar.gz" href="https://github.com/KumaVolt/GitChrono/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>
+          <b>Linux ARM</b><span>aarch64</span><span class="file mono">.tar.gz</span>
+        </a>
+      </div>
+      <div class="release-meta" id="release-meta">Builds are published on <a href="https://github.com/KumaVolt/GitChrono/releases">GitHub Releases</a>.</div>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <div class="wrap">
+      <div class="kicker">Open-core</div>
+      <h2>Free at its core. Pro when your team needs more.</h2>
+      <div class="oc">
+        <div class="tier">
+          <h3>GitChrono</h3>
+          <div class="price">Free · Apache-2.0</div>
+          <ul>
+            <li>Commit graph and diffs</li>
+            <li>Line- and hunk-level staging</li>
+            <li>Branches, tags, stashes, merge &amp; rebase</li>
+            <li>Every platform, no account required</li>
+          </ul>
+        </div>
+        <div class="tier pro">
+          <h3>GitChrono Pro <span class="badge">Coming soon</span></h3>
+          <div class="price">For teams</div>
+          <ul>
+            <li>Pull requests &amp; issues from GitHub, GitLab and more</li>
+            <li>AI commit messages and release notes</li>
+            <li>Publish changelogs to gitchrono.com</li>
+            <li>Multi-repo workspaces</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="year">2026</span> GitChrono</span>
+      <div class="links">
+        <a href="https://github.com/KumaVolt/GitChrono">GitHub</a>
+        <a href="https://github.com/KumaVolt/GitChrono/releases">Releases</a>
+        <a href="https://github.com/KumaVolt/GitChrono/blob/main/docs/parity.md">Roadmap</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Point the download buttons at the newest release's assets and
+    // highlight the visitor's platform. Falls back to the releases page.
+    (function () {
+      document.getElementById('year').textContent = new Date().getFullYear();
+
+      const ua = navigator.userAgent;
+      const os = /Mac/.test(ua) ? 'mac' : /Win/.test(ua) ? 'win' : /Linux/.test(ua) ? (/aarch64|arm/i.test(ua) ? 'linux-arm' : 'linux') : null;
+      const names = { mac: 'macOS', win: 'Windows', linux: 'Linux', 'linux-arm': 'Linux ARM' };
+      const cards = Array.from(document.querySelectorAll('.dl'));
+      const mine = cards.find(c => c.dataset.os === os);
+      if (mine) {
+        mine.classList.add('recommended');
+        document.getElementById('hero-download-label').textContent = 'Download for ' + names[os];
+      }
+
+      fetch('https://api.github.com/repos/KumaVolt/GitChrono/releases/latest')
+        .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then(release => {
+          for (const card of cards) {
+            const asset = release.assets.find(a => a.name.endsWith(card.dataset.match));
+            if (!asset) continue;
+            card.href = asset.browser_download_url;
+            card.querySelector('.file').textContent = asset.name + ' · ' + (asset.size / 1048576).toFixed(1) + ' MB';
+          }
+          if (mine && mine.href.includes('/download/')) document.getElementById('hero-download').href = mine.href;
+          const date = new Date(release.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+          document.getElementById('release-meta').innerHTML =
+            'Latest: <a href="' + release.html_url + '">' + release.tag_name + '</a> · ' + date +
+            ' · <a href="https://github.com/KumaVolt/GitChrono/releases">all releases</a>';
+          document.getElementById('hero-fine').textContent = release.tag_name + ' · macOS · Windows · Linux — free';
+        })
+        .catch(() => {
+          document.getElementById('release-meta').innerHTML =
+            'First release coming soon — follow along on <a href="https://github.com/KumaVolt/GitChrono">GitHub</a>.';
+        });
+    })();
+  </script>
+</body>
+</html>
