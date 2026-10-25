@@ -52,6 +52,46 @@ pub fn url_for_email(email: &str) -> String {
     format!("https://gravatar.com/avatar/{}?s=96&d=identicon", hex::encode(Sha256::digest(email.as_bytes())))
 }
 
+/// AI coding assistants that sign commits (as author or `Co-authored-by`)
+/// show the image their maker publishes on GitHub for that assistant.
+/// Matched on the address, or on a name that is clearly the assistant
+/// ("Claude", "Claude Opus 5.5") rather than a person called Claude.
+pub fn ai_assistant(name: &str, email: &str) -> Option<&'static str> {
+    const CLAUDE: &str = "https://avatars.githubusercontent.com/in/1236702?s=96"; // anthropics: Claude
+    const OPENAI: &str = "https://avatars.githubusercontent.com/in/1144995?s=96"; // openai: ChatGPT Codex
+    const GEMINI: &str = "https://avatars.githubusercontent.com/in/956858?s=96"; // google: Gemini Code Assist
+    const COPILOT: &str = "https://avatars.githubusercontent.com/in/1143301?s=96"; // github: Copilot agent
+    const XAI: &str = "https://avatars.githubusercontent.com/u/130314967?s=96"; // xai-org (Grok)
+    let email = email.trim().to_lowercase();
+    let domain = email.rsplit_once('@').map_or("", |(_, d)| d);
+    match domain {
+        "anthropic.com" => return Some(CLAUDE),
+        "openai.com" => return Some(OPENAI),
+        "x.ai" => return Some(XAI),
+        _ => {}
+    }
+    if email.ends_with("+copilot@users.noreply.github.com") {
+        return Some(COPILOT);
+    }
+    let name = name.trim().to_lowercase();
+    let mut words = name.split_whitespace();
+    let first = words.next()?;
+    let rest: Vec<&str> = words.collect();
+    // "Claude", "Claude Code", "Claude Opus 4.5", "Gemini CLI", "GPT-5 Codex"…
+    let qualifiers = ["code", "cli", "opus", "sonnet", "haiku", "fable", "assist", "agent", "assistant", "pro", "flash", "mini", "codex", "ai"];
+    let assistant_like = rest.iter().all(|w| qualifiers.contains(w) || w.chars().any(|c| c.is_ascii_digit()));
+    match first {
+        "claude" if assistant_like => Some(CLAUDE),
+        "chatgpt" | "codex" | "openai" => Some(OPENAI),
+        f if f.starts_with("gpt-") => Some(OPENAI),
+        "gemini" if assistant_like => Some(GEMINI),
+        "grok" if assistant_like => Some(XAI),
+        "copilot" => Some(COPILOT),
+        "github" if rest.first() == Some(&"copilot") => Some(COPILOT),
+        _ => None,
+    }
+}
+
 fn cache_path(url: &str) -> PathBuf {
     let name = hex::encode(Sha256::digest(url.as_bytes()));
     dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("gitchrono").join("avatars").join(format!("{}.img", &name[..32]))
@@ -100,6 +140,16 @@ impl Avatars {
     }
 }
 
+/// The person's picture: an AI assistant's logo (always), otherwise their
+/// Gravatar or GitHub picture if profile pictures are on. `None` until it's
+/// downloaded.
+pub fn for_person(name: &str, email: &str, cx: &mut App) -> Option<PathBuf> {
+    if let Some(url) = ai_assistant(name, email) {
+        return for_url(url, cx);
+    }
+    for_email(email, cx)
+}
+
 /// The author's picture if profile pictures are on and it's downloaded.
 pub fn for_email(email: &str, cx: &mut App) -> Option<PathBuf> {
     if !cx.global::<Prefs>().gravatar {
@@ -119,7 +169,23 @@ pub fn for_url(url: &str, cx: &mut App) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: that brings in GPUI's own `test` attribute.
-    use super::url_for_email;
+    use super::{ai_assistant, url_for_email};
+
+    #[test]
+    fn recognises_ai_assistants_but_not_people_named_like_them() {
+        let claude = ai_assistant("Claude Opus 5.5", "noreply@anthropic.com");
+        assert!(claude.is_some_and(|u| u.contains("in/1236702")));
+        assert_eq!(ai_assistant("Claude", "someone@example.com"), claude);
+        assert_eq!(ai_assistant("Claude Code", ""), claude);
+        assert_eq!(ai_assistant("Claude Monet", "claude@monet.fr"), None);
+        assert!(ai_assistant("Codex", "codex@openai.com").is_some_and(|u| u.contains("in/1144995")));
+        assert!(ai_assistant("ChatGPT", "").is_some_and(|u| u.contains("in/1144995")));
+        assert!(ai_assistant("Gemini CLI", "").is_some_and(|u| u.contains("in/956858")));
+        assert_eq!(ai_assistant("Gemini Smith", "g@example.com"), None);
+        assert!(ai_assistant("Copilot", "198982749+Copilot@users.noreply.github.com").is_some_and(|u| u.contains("in/1143301")));
+        assert!(ai_assistant("Grok 4", "").is_some_and(|u| u.contains("130314967")));
+        assert_eq!(ai_assistant("Ada Park", "ada@example.com"), None);
+    }
 
     #[test]
     fn picks_github_for_noreply_and_gravatar_otherwise() {

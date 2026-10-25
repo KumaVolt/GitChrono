@@ -801,7 +801,7 @@ impl Workspace {
                 // With profile pictures on, regular commits show the author on the dot.
                 let node_x = graph_paint::node_x(layout.lane);
                 let picture = (!merge && f32::from(gutter) >= node_x + 10. && f32::from(gutter) >= graph_paint::MIN_FULL_GUTTER)
-                    .then(|| crate::avatars::for_email(&commit.author_email, cx))
+                    .then(|| crate::avatars::for_person(&commit.author_name, &commit.author_email, cx))
                     .flatten();
                 div()
                     .relative()
@@ -813,6 +813,7 @@ impl Workspace {
                     .when_some(picture, |d, path| {
                         d.child(
                             img(path)
+                                .bg(gpui_kit::white())
                                 .absolute()
                                 .left(px(node_x - 10.))
                                 .top(px(graph_paint::ROW_HEIGHT / 2. - 10.))
@@ -949,8 +950,8 @@ impl Workspace {
                             .flex()
                             .gap_3()
                             .items_start()
-                            .child(match crate::avatars::for_email(&commit.author_email, cx) {
-                                Some(path) => img(path).size(px(36.)).flex_none().rounded_full().into_any_element(),
+                            .child(match crate::avatars::for_person(&commit.author_name, &commit.author_email, cx) {
+                                Some(path) => img(path).size(px(36.)).flex_none().rounded_full().bg(gpui_kit::white()).into_any_element(),
                                 None => avatar(&commit.author_name, &commit.author_email).into_any_element(),
                             })
                             .child(
@@ -997,7 +998,7 @@ impl Workspace {
                                 .text_xs()
                                 .child(div().text_color(c(theme::FAINT)).child(if people.len() == 1 { "Co-author" } else { "Co-authors" }))
                                 .children(people.into_iter().map(|(name, email)| {
-                                    let picture = crate::avatars::for_email(&email, cx);
+                                    let picture = crate::avatars::for_person(&name, &email, cx);
                                     div()
                                         .flex()
                                         .items_center()
@@ -1008,7 +1009,8 @@ impl Workspace {
                                         .rounded_full()
                                         .bg(c(theme::BG))
                                         .child(match picture {
-                                            Some(path) => img(path).size(px(20.)).flex_none().rounded_full().into_any_element(),
+                                            // White behind transparent logos (OpenAI's is black on clear).
+                                            Some(path) => img(path).size(px(20.)).flex_none().rounded_full().bg(gpui_kit::white()).into_any_element(),
                                             None => avatar_sized(&name, &email, 20.).into_any_element(),
                                         })
                                         .child(div().text_color(c(theme::TEXT)).child(name))
