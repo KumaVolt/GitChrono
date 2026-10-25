@@ -322,7 +322,7 @@ impl Shell {
                                 .child(link("about-site", "Website", "https://gitchrono.com".into()))
                                 .child(link("about-github", "GitHub", format!("https://github.com/{}", update::REPO)))
                                 .child(link("about-issues", "Report an issue", format!("https://github.com/{}/issues/new", update::REPO)))
-                                .child(link("about-releases", "Release notes", format!("https://github.com/{}/releases", update::REPO)))
+                                .child(link("about-releases", "Release notes", "https://gitchrono.com/changelog/".into()))
                                 .child(Button::new("about-check").label("Check for updates").xsmall().ghost().disabled(matches!(self.update, UpdateState::Checking | UpdateState::Downloading(..))).on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))),
                         )
                         .children(self.update_status().map(|s| div().text_xs().text_color(c(theme::MUTED)).child(s)))

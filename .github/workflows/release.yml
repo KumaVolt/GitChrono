@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # start the website deploy so /changelog shows the new release
 
 env:
   CARGO_TERM_COLOR: always
@@ -126,3 +127,10 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: dist/*
+
+      # Releases made with GITHUB_TOKEN don't trigger other workflows, but a
+      # manual dispatch does: rebuild the site so /changelog lists this release.
+      - name: Update the website changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --repo "${{ github.repository }}" --ref main

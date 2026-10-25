@@ -4,7 +4,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["site/**", "scripts/build-changelog.py", "scripts/changelog.template.html", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Changelog from GitHub releases
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/build-changelog.py --test && python3 scripts/build-changelog.py
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
