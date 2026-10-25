@@ -593,6 +593,23 @@ impl Workspace {
         )
     }
 
+    /// A ref label in the graph that checks out its branch on double-click.
+    /// `shown` may differ from `target` (a local branch with its remote folded in).
+    fn ref_chip_as(&self, id: ElementId, target: &RefLabel, shown: &RefLabel, color: Hsla, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (name, kind) = (target.name.clone(), target.kind);
+        ref_badge(shown, color).id(id).cursor_pointer().on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+            if ev.click_count() < 2 {
+                return;
+            }
+            let t = name.clone();
+            match kind {
+                RefKind::Local => this.run("Checking out", Change::Refs, cx, move |r| r.checkout(&t)),
+                RefKind::Remote => this.run("Checking out", Change::Refs, cx, move |r| r.checkout_remote(&t)),
+                _ => {}
+            }
+        }))
+    }
+
     fn render_row(&self, row: usize, gutter: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let wip = self.has_wip();
         let base = div()
@@ -654,15 +671,54 @@ impl Workspace {
             .when(dimmed, |d| d.opacity(0.3))
             .child(
                 div()
+                    .id(("refs", row))
+                    .relative()
                     .w(px(170.))
+                    .h_full()
                     .flex_none()
-                    .px_2()
+                    .pl_2()
                     .flex()
                     .gap_1()
-                    .overflow_hidden()
                     .items_center()
+                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                        this.refs_hover.0 = if *hovered { Some(row) } else { this.refs_hover.0.filter(|r| *r != row) };
+                        cx.notify();
+                    }))
+                    // Hovering a row's labels lists all of them on top of the rows below;
+                    // the list stays open while the pointer is on it.
+                    .when(commit.refs.len() > 1 && (self.refs_hover.0 == Some(row) || self.refs_hover.1 == Some(row)), |d| {
+                        let mut refs = commit.refs.clone();
+                        if let Some((primary, _)) = primary_ref(&commit.refs) {
+                            let name = primary.name.trim_end_matches(" ☁").to_string();
+                            refs.sort_by_key(|r| r.name != name);
+                        }
+                        // Pinned to the cell's corner: as a flex child it would be centred on the row.
+                        d.child(div().absolute().top(px(1.)).left(px(4.)).child(deferred(
+                            anchored().child(
+                                div()
+                                    .id(("refs-list", row))
+                                    .occlude()
+                                    .p_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(c(theme::BORDER))
+                                    .bg(c(theme::PANEL))
+                                    .shadow_lg()
+                                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                                        this.refs_hover.1 = if *hovered { Some(row) } else { this.refs_hover.1.filter(|r| *r != row) };
+                                        cx.notify();
+                                    }))
+                                    .children(refs.iter().enumerate().map(|(i, r)| self.ref_chip_as(("ref-in-list", row * 64 + i).into(), r, r, color, cx))),
+                            ),
+                        )))
+                    })
                     .when_some(primary_ref(&commit.refs), |d, (primary, rest)| {
-                        d.child(ref_badge(&primary, color)).when(rest > 0, |d| {
+                        let name = primary.name.trim_end_matches(" ☁");
+                        let real = commit.refs.iter().find(|r| r.name == name && r.kind == primary.kind).cloned().unwrap_or_else(|| primary.clone());
+                        d.child(self.ref_chip_as(("ref", row).into(), &real, &primary, color, cx)).when(rest > 0, |d| {
                             d.child(
                                 div()
                                     .flex_none()
@@ -677,9 +733,11 @@ impl Workspace {
                                     .child(format!("+{rest}")),
                             )
                         })
+                        // Thin line from the labels to the commit's dot, as in GitKraken.
+                        .child(div().flex_1().min_w(px(4.)).h_px().bg(color.opacity(0.6)))
                     }),
             )
-            .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge })))
+            .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty() })))
             .child(
                 div()
                     .flex_1()

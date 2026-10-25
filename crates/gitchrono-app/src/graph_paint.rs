@@ -16,7 +16,8 @@ const ELBOW: f32 = 8.;
 
 #[derive(Clone, Copy)]
 pub enum Node {
-    Commit { merge: bool },
+    /// `labelled`: the row has ref labels, joined to the node by a line.
+    Commit { merge: bool, labelled: bool },
     /// The uncommitted-changes row: hollow node joined to HEAD below it.
     Wip,
 }
@@ -109,7 +110,15 @@ fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, window: &mut Window)
         segment(window, from, to, color, bend);
     }
 
-    let merge = matches!(node, Node::Commit { merge: true });
+    if let Node::Commit { labelled: true, .. } = node {
+        let mut line = PathBuilder::stroke(px(1.));
+        line.move_to(point(bounds.left(), mid));
+        line.line_to(point(node_x, mid));
+        if let Ok(path) = line.build() {
+            window.paint_path(path, theme::lane(row.color).opacity(0.6));
+        }
+    }
+    let merge = matches!(node, Node::Commit { merge: true, .. });
     paint_node(window, node_x, mid, theme::lane(row.color), merge);
 }
 
