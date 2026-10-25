@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GitChrono — Fast, native Git GUI for macOS, Windows &amp; Linux</title>
-  <meta name="description" content="GitChrono is a free, open-source Git GUI client written in Rust: a colorful commit graph, line-level staging, instant diffs and optional AI commit messages. For macOS, Windows and Linux.">
+  <meta name="description" content="GitChrono is a free, open-source Git app for macOS, Windows and Linux: a colorful commit graph, line-by-line staging, instant diffs and optional AI commit messages.">
   <meta name="keywords" content="git gui, git client, git gui alternative, git commit graph, rust git client, open source git gui, mac git client, linux git client, windows git client">
   <link rel="canonical" href="https://gitchrono.com/">
   <meta name="robots" content="index, follow, max-image-preview:large">
@@ -13,7 +13,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="GitChrono">
   <meta property="og:title" content="GitChrono — Fast, native Git GUI">
-  <meta property="og:description" content="A colorful commit graph, line-level staging and instant diffs. Written in Rust, GPU-rendered, free and open source.">
+  <meta property="og:description" content="A colorful commit graph, line-by-line staging and instant diffs. Fast, native, free and open source.">
   <meta property="og:image" content="https://gitchrono.com/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -22,7 +22,7 @@
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="GitChrono — Fast, native Git GUI">
-  <meta name="twitter:description" content="A colorful commit graph, line-level staging and instant diffs. Written in Rust, free and open source.">
+  <meta name="twitter:description" content="A colorful commit graph, line-by-line staging and instant diffs. Fast, native, free and open source.">
   <meta name="twitter:image" content="https://gitchrono.com/assets/og.png">
   <script type="application/ld+json">
   {
@@ -32,7 +32,7 @@
         "@type": "SoftwareApplication",
         "name": "GitChrono",
         "url": "https://gitchrono.com/",
-        "description": "A fast, native Git GUI client written in Rust with a commit graph, line-level staging and diffs.",
+        "description": "A fast, native Git app with a commit graph, line-by-line staging and diffs.",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "macOS, Windows, Linux",
         "softwareVersion": "0.2.0",
@@ -46,9 +46,9 @@
         "@type": "FAQPage",
         "mainEntity": [
           { "@type": "Question", "name": "Is GitChrono free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The Git client is free and open source under the Apache-2.0 licence. Optional AI features work with your own API key, or with prepaid credits later." } },
-          { "@type": "Question", "name": "Why another Git client?", "acceptedAnswer": { "@type": "Answer", "text": "GitChrono is native Rust instead of Electron: it opens huge repositories in seconds, stays light on memory and battery, and works without an account." } },
+          { "@type": "Question", "name": "Why another Git client?", "acceptedAnswer": { "@type": "Answer", "text": "GitChrono is a real desktop app, not a web page in a wrapper: it opens huge repositories in seconds, stays light on memory and battery, and works without an account." } },
           { "@type": "Question", "name": "Which platforms does GitChrono support?", "acceptedAnswer": { "@type": "Answer", "text": "macOS (Apple Silicon and Intel), Windows 64-bit and Linux (x86_64 and ARM64)." } },
-          { "@type": "Question", "name": "Does GitChrono upload my code?", "acceptedAnswer": { "@type": "Answer", "text": "No. GitChrono works locally with your git installation. AI features only send a trimmed diff, with secrets redacted, to the provider you choose, and only when you click an AI button." } },
+          { "@type": "Question", "name": "Does GitChrono upload my code?", "acceptedAnswer": { "@type": "Answer", "text": "No. GitChrono works locally with your git installation. AI features only send the changes involved, trimmed and with passwords and keys removed, to the provider you choose, and only when you click an AI button." } },
           { "@type": "Question", "name": "Is GitChrono stable?", "acceptedAnswer": { "@type": "Answer", "text": "GitChrono is in alpha. Expect bugs and keep a pushed remote or backup of repositories you can't afford to lose." } }
         ]
       }
@@ -257,7 +257,7 @@
 
   <header class="hero">
     <div class="wrap">
-      <span class="eyebrow"><span class="dot"></span> Open source · written in Rust</span>
+      <span class="eyebrow"><span class="dot"></span> Free and open source</span>
       <h1>The Git client that <span class="grad">keeps up with you.</span></h1>
       <p class="lede">GitChrono gives you a colorful commit graph, line-by-line staging and instant diffs — in a native app that opens huge repositories in seconds.</p>
       <div class="cta">
@@ -273,7 +273,7 @@
       <div class="fine" id="hero-fine">macOS · Windows · Linux — free</div>
 
       <div class="shot">
-        <img src="assets/screenshot.png" width="2000" height="1296" fetchpriority="high" alt="GitChrono with repository tabs, a colorful commit graph, a worktree in the sidebar and the built-in terminal">
+        <img src="assets/screenshot.png" width="2000" height="1296" fetchpriority="high" alt="GitChrono with repository tabs, a colorful commit graph, commit details and the built-in terminal">
       </div>
 
       <div class="stats">
@@ -293,17 +293,17 @@
         <div class="card" style="--c: var(--cyan)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M6 9c0 3 12 0 12 3"/></svg></div>
           <h3>A graph you can read</h3>
-          <p>Every branch, remote, tag and stash in one colorful, topologically ordered graph — with HEAD and your uncommitted work right on top.</p>
+          <p>Every branch, tag and stash in one colorful graph, newest first — with your current branch and uncommitted work right on top.</p>
         </div>
         <div class="card" style="--c: var(--green)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M4 12h16M4 18h7"/><path d="m16 16 2 2 4-4"/></svg></div>
           <h3>Stage lines, not just files</h3>
-          <p>Click the exact lines you want, or stage, unstage and discard whole hunks. Perfect commits without touching the terminal.</p>
+          <p>Pick the exact lines you want, or whole blocks of changes, or several files at once. Clean commits without touching the terminal.</p>
         </div>
         <div class="card" style="--c: var(--blue)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
           <h3>Native speed</h3>
-          <p>Rust from top to bottom, GPU-rendered with gpui. History comes straight from gitoxide, so even giant repos open in seconds.</p>
+          <p>A true desktop app, not a website in a wrapper. Repositories with a hundred thousand commits open in seconds and scroll smoothly.</p>
         </div>
         <div class="card" style="--c: var(--violet)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h4"/></svg></div>
@@ -318,7 +318,7 @@
         <div class="card" style="--c: var(--amber)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 4 7v5c0 5 3.5 8 8 9 4.5-1 8-4 8-9V7z"/><path d="m9 12 2 2 4-4"/></svg></div>
           <h3>Behaves exactly like git</h3>
-          <p>Writes go through your own git, so hooks, SSH keys, credential helpers and commit signing all just work.</p>
+          <p>Uses the git you already have, so your SSH keys, passwords and signing just work. Settings sets up your name, email and SSH keys for you.</p>
         </div>
         <div class="card" style="--c: var(--cyan)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M8 6V4h5v2"/></svg></div>
@@ -333,7 +333,7 @@
         <div class="card" style="--c: var(--blue)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg></div>
           <h3>Palette and search</h3>
-          <p>⌘P runs any action, checks out any branch or opens any repository. ⌘F searches history by message, author or SHA.</p>
+          <p>⌘P runs any action, checks out any branch or opens any repository. ⌘F searches history by message, author or commit ID.</p>
         </div>
         <div class="card" style="--c: var(--violet)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></div>
@@ -348,7 +348,7 @@
         <div class="card" style="--c: var(--amber)">
           <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg></div>
           <h3>AI commit messages</h3>
-          <p>One click writes a commit message in your repository's style, using your own OpenAI, Anthropic, Mistral, Gemini or local model.</p>
+          <p>One click writes a commit message in your repository's style, or explains what any commit does, using your own OpenAI, Anthropic, Mistral, Gemini or local model.</p>
         </div>
       </div>
     </div>
@@ -360,20 +360,20 @@
       <h2>Fast where it matters, faithful everywhere else.</h2>
       <div class="split">
         <ul class="list">
-          <li style="--c: var(--cyan)"><span class="n">1</span><div><b>Reads in-process with gitoxide</b><span>History walks, refs and commit trees are read directly from the object database — no subprocess per commit.</span></div></li>
-          <li style="--c: var(--blue)"><span class="n">2</span><div><b>Writes through your git</b><span>Commit, push, rebase and stash run your installed <code>git</code>, so every repository behaves exactly like it does in the terminal.</span></div></li>
-          <li style="--c: var(--violet)"><span class="n">3</span><div><b>Painted on the GPU</b><span>The graph and lists are virtualized and drawn with gpui, the framework behind the Zed editor.</span></div></li>
+          <li style="--c: var(--cyan)"><span class="n">1</span><div><b>Reads your history directly</b><span>Commits and branches are read straight from the repository on your disk, so even huge histories show up in seconds.</span></div></li>
+          <li style="--c: var(--blue)"><span class="n">2</span><div><b>Changes go through your git</b><span>Commit, push, rebase and stash use the git already on your computer, so every repository behaves exactly like it does in the terminal.</span></div></li>
+          <li style="--c: var(--violet)"><span class="n">3</span><div><b>Smooth at any size</b><span>Only what's on screen gets drawn, so scrolling stays smooth whether you have a hundred commits or a hundred thousand.</span></div></li>
         </ul>
-        <pre class="code"><span class="c">// gitchrono-core: the history walk</span>
-<span class="k">let</span> walk = topo::<span class="f">Builder</span>::<span class="f">new</span>(&amp;repo.objects)
-    .<span class="f">with_tips</span>(tips)
-    .<span class="f">sorting</span>(topo::Sorting::TopoOrder)
-    .<span class="f">with_commit_graph</span>(repo.<span class="f">commit_graph_if_enabled</span>()?)
-    .<span class="f">build</span>()?;
+        <pre class="code"><span class="c">// You click Commit in GitChrono…</span>
+git commit -m <span class="f">"Stripe checkout flow"</span>
 
-<span class="c">// …and a partial patch for line staging</span>
-repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
-<span class="c">//   → git apply --cached --recount -</span></pre>
+<span class="c">// …your own git does the work:</span>
+<span class="k">✓</span> your hooks run
+<span class="k">✓</span> your key signs the commit
+<span class="k">✓</span> same result as the terminal
+
+<span class="c">// Staging a few lines works the same way:</span>
+git apply --cached <span class="c"># just the lines you picked</span></pre>
       </div>
     </div>
   </section>
@@ -412,10 +412,10 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
       <div class="oc">
         <div class="tier">
           <h3>GitChrono</h3>
-          <div class="price">Free · Apache-2.0</div>
+          <div class="price">Free and open source</div>
           <ul>
             <li>Commit graph and diffs</li>
-            <li>Line- and hunk-level staging</li>
+            <li>Stage single lines, blocks or many files at once</li>
             <li>Branches, tags, stashes, merge &amp; rebase</li>
             <li>Every platform, no account required</li>
           </ul>
@@ -441,9 +441,9 @@ repo.<span class="f">apply_patch</span>(&amp;patch, ApplyMode::Stage)?;
       <h2>Questions, answered.</h2>
       <div class="faq">
         <details><summary>Is GitChrono free?</summary><p>Yes. The Git client is free and open source under the Apache-2.0 licence. Optional AI features work with your own API key, or with prepaid credits later.</p></details>
-        <details><summary>Why another Git client?</summary><p>GitChrono is native Rust instead of Electron: it opens huge repositories in seconds, stays light on memory and battery, and works without an account.</p></details>
+        <details><summary>Why another Git client?</summary><p>GitChrono is a real desktop app, not a web page in a wrapper: it opens huge repositories in seconds, stays light on memory and battery, and works without an account.</p></details>
         <details><summary>Which platforms are supported?</summary><p>macOS (Apple Silicon and Intel), Windows 64-bit and Linux (x86_64 and ARM64).</p></details>
-        <details><summary>Does GitChrono upload my code?</summary><p>No. It works locally with your own <code>git</code>. AI features only send a trimmed diff, with secrets redacted, to the provider you choose, and only when you click an AI button.</p></details>
+        <details><summary>Does GitChrono upload my code?</summary><p>No. It works locally with your own <code>git</code>. AI features only send the changes involved, trimmed and with passwords and keys removed, to the provider you choose, and only when you click an AI button.</p></details>
         <details><summary>Is it stable?</summary><p>GitChrono is in alpha: use it at your own risk. Keep a pushed remote or a backup of repositories you can't afford to lose.</p></details>
       </div>
     </div>
