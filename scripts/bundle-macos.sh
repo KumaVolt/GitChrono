@@ -47,6 +47,12 @@ rm -f "$dmg"
 staging="$(mktemp -d)"
 cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
-hdiutil create -quiet -volname "GitChrono ${version}" -srcfolder "$staging" -ov -format UDZO "$dmg"
+# hdiutil fails now and then on CI runners ("Resource busy"); try a few times.
+for attempt in 1 2 3 4; do
+  hdiutil create -volname "GitChrono ${version}" -srcfolder "$staging" -ov -format UDZO "$dmg" && break
+  [ "$attempt" = 4 ] && exit 1
+  echo "hdiutil failed (attempt ${attempt}); retrying in 10s" >&2
+  sleep 10
+done
 rm -rf "$staging"
 echo "$dmg"
