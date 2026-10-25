@@ -42,6 +42,20 @@ pub fn commit_message(diff: &str, recent_subjects: &[&str], branch: Option<&str>
     Request { system: COMMIT_SYSTEM, user, max_tokens: 300 }
 }
 
+const EXPLAIN_SYSTEM: &str = "You explain git commits to a developer reviewing history. Reply in plain text, no headings or code fences.
+Start with one or two sentences on what the commit does and why it likely matters, then up to five short \"- \" bullets on the notable changes (files, behaviour, risks).
+Be concrete and brief. Never invent details that the message and diff do not show.";
+
+pub fn explain_commit(summary: &str, body: &str, diff: &str) -> Request<'static> {
+    let mut user = format!("Commit message:\n{summary}\n");
+    if !body.trim().is_empty() {
+        user.push_str(&format!("\n{}\n", body.trim()));
+    }
+    user.push_str("\nDiff:\n");
+    user.push_str(&prepare_diff(diff, DIFF_BUDGET));
+    Request { system: EXPLAIN_SYSTEM, user, max_tokens: 400 }
+}
+
 pub fn branch_name(diff: &str) -> Request<'static> {
     Request { system: BRANCH_SYSTEM, user: format!("Changes:\n{}", prepare_diff(diff, DIFF_BUDGET / 2)), max_tokens: 30 }
 }

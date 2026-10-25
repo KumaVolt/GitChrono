@@ -53,7 +53,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Workspaces (multi-repo) | 🟡 project folders; multi-repo fetch/pull still todo |
 | Settings page: git identity, defaults, signing, SSH keys | ✅ global or per repo; generate/test Ed25519 keys |
 | Profiles | ⬜ |
-| AI commit messages / explain commit | 🟡 commit message, branch & stash names (BYOK) |
+| AI commit messages / explain commit | 🟡 commit message, explain commit, branch & stash names (BYOK) |
 | Release notes from tag range → gitchrono.com changelog | 💎 |
 | Cloud patches | 💎 |
 

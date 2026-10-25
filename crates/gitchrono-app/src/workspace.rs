@@ -121,6 +121,8 @@ pub struct Workspace {
     /// Files picked with ⌘/Shift-click in the staging lists: which list
     /// (staged or not) and the paths, the first being the Shift anchor.
     pub file_multi: (bool, Vec<String>),
+    /// AI explanation of a commit: (commit id, text).
+    pub explanation: Option<(String, SharedString)>,
     /// Folder view for file lists (staging and commit files) instead of full paths.
     pub file_tree: bool,
     /// Collapsed folders in folder view, as "<list>:<dir path>".
@@ -199,6 +201,7 @@ impl Workspace {
             pull_requests: None,
             multi: Vec::new(),
             file_multi: (false, Vec::new()),
+            explanation: None,
             file_tree: std::env::var_os("GITCHRONO_FOLDERS").is_some(),
             collapsed_dirs: Default::default(),
             diff: None,

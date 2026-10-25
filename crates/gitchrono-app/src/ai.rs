@@ -11,7 +11,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::theme::{self, c};
-use crate::workspace::{Suggest, Workspace};
+use crate::workspace::{Selection, Suggest, Workspace};
 
 pub struct AiSettings {
     preset: usize,
@@ -176,6 +176,20 @@ impl Workspace {
                 this.summary.update(cx, |s, cx| s.set_value(message.summary, window, cx));
                 this.description.update(cx, |s, cx| s.set_value(message.body, window, cx));
             },
+        );
+    }
+
+    /// Explain the selected commit in a few sentences, shown in the detail panel.
+    pub fn explain_commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Selection::Commit(i) = self.selection else { return };
+        let Some(commit) = self.snap.commits.get(i).cloned() else { return };
+        let id = commit.id.clone();
+        self.ai_request(
+            "Explaining…",
+            window,
+            cx,
+            move |repo| Ok(gitchrono_ai::explain_commit(&commit.summary, &commit.body, &repo.commit_patch(&commit.id)?)),
+            move |this, text, _, _| this.explanation = Some((id, text.trim().to_string().into())),
         );
     }
 

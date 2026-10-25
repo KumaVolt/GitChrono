@@ -2192,6 +2192,7 @@ version = "0.2.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "chrono",
  "dirs 6.0.0",
  "gitchrono-ai",
  "gitchrono-core",

@@ -270,6 +270,11 @@ impl Repo {
         self.git(&["diff", "--no-color", "--cached", "-M"])
     }
 
+    /// What a commit changed; merges against their first parent (what they brought in).
+    pub fn commit_patch(&self, id: &str) -> Result<String> {
+        self.git(&["show", "--no-color", "-M", "--format=", "--diff-merges=first-parent", id])
+    }
+
     /// Every working-tree change against HEAD, plus the names of untracked files.
     pub fn workdir_patch(&self) -> Result<String> {
         let mut out = self.git(&["diff", "--no-color", "-M", "HEAD"]).or_else(|_| self.git(&["diff", "--no-color", "--cached"]))?;

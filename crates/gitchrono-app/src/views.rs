@@ -32,6 +32,29 @@ pub fn relative_time(secs: i64) -> String {
     format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
 }
 
+/// The label a row shows when it has several: the checked-out branch, then
+/// main/master, other local branches, HEAD, remotes, tags. A remote with the same name as the
+/// shown local branch folds into it as a cloud mark, as GitKraken does.
+fn primary_ref(refs: &[RefLabel]) -> Option<(RefLabel, usize)> {
+    let rank = |r: &RefLabel| match r.kind {
+        RefKind::Local if r.current => 0,
+        RefKind::Local if r.name == "main" || r.name == "master" => 1,
+        RefKind::Local => 2,
+        RefKind::Head => 3,
+        RefKind::Remote => 4,
+        RefKind::Tag => 5,
+        RefKind::Stash => 6,
+    };
+    let mut primary = refs.iter().min_by_key(|r| rank(r))?.clone();
+    let tracked = |r: &RefLabel| r.kind == RefKind::Remote && r.name.split_once('/').is_some_and(|(_, n)| n == primary.name);
+    let folded = primary.kind == RefKind::Local && refs.iter().any(tracked);
+    let rest = refs.len() - 1 - usize::from(folded);
+    if folded {
+        primary.name.push_str(" ☁");
+    }
+    Some((primary, rest))
+}
+
 fn ref_badge(label: &RefLabel, color: Hsla) -> Div {
     let (prefix, fg) = match label.kind {
         RefKind::Tag => ("◆ ", c(theme::WARN).into()),
@@ -42,7 +65,8 @@ fn ref_badge(label: &RefLabel, color: Hsla) -> Div {
         RefKind::Local => ("", color),
     };
     div()
-        .flex_none()
+        .min_w_0()
+        .overflow_hidden()
         .px_1p5()
         .h(px(18.))
         .flex()
@@ -54,7 +78,49 @@ fn ref_badge(label: &RefLabel, color: Hsla) -> Div {
         .text_xs()
         .text_color(c(theme::TEXT))
         .when(label.current, |d| d.font_weight(FontWeight::BOLD))
-        .child(format!("{prefix}{}", label.name))
+        .child(div().truncate().child(format!("{prefix}{}", label.name)))
+}
+
+/// "10/23/2026 @ 5:15 PM" in local time.
+fn absolute_time(secs: i64) -> String {
+    use chrono::TimeZone as _;
+    chrono::Local.timestamp_opt(secs, 0).single().map_or_else(String::new, |t| t.format("%-m/%-d/%Y @ %-I:%M %p").to_string())
+}
+
+/// Initials on a color picked from the email, so each author keeps theirs.
+fn avatar(name: &str, email: &str) -> Div {
+    let initials: String = name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase();
+    let hash = email.to_lowercase().bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize));
+    let color = theme::lane(hash);
+    div()
+        .size(px(36.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(color.opacity(0.25))
+        .border_1()
+        .border_color(color)
+        .text_sm()
+        .font_weight(FontWeight::BOLD)
+        .child(if initials.is_empty() { "?".to_string() } else { initials })
+}
+
+/// "2 added · 1 modified · 1 deleted", colored like the status letters.
+fn change_summary(files: &[FileChange]) -> Div {
+    use gitchrono_core::FileStatus::*;
+    let count = |pred: &dyn Fn(FileStatus) -> bool| files.iter().filter(|f| pred(f.status)).count();
+    let parts = [
+        (count(&|s| matches!(s, Added | Untracked | Copied)), "added", theme::ADD),
+        (count(&|s| matches!(s, Modified | TypeChange)), "modified", theme::ACCENT),
+        (count(&|s| s == Renamed), "renamed", theme::ACCENT),
+        (count(&|s| s == Deleted), "deleted", theme::DEL),
+        (count(&|s| s == Conflicted), "conflicted", theme::WARN),
+    ];
+    div().flex().gap_2().text_xs().children(
+        parts.into_iter().filter(|(n, ..)| *n > 0).map(|(n, what, color)| div().text_color(c(color)).child(format!("{n} {what}"))),
+    )
 }
 
 fn status_letter(change: &FileChange) -> Div {
@@ -151,10 +217,11 @@ impl Workspace {
                 )
                 .child(tool("branch", "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
                 .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
-                .child(tool("terminal", "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
                 .child(tool("pop", "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.run("Popping stash", Change::Refs, cx, |r| r.stash_pop(0)),
                 )))
+                .child(div().mx_1().w_px().h(px(18.)).bg(c(theme::BORDER)))
+                .child(tool("terminal", "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
             })
             .child(div().flex_1())
             .when_some(self.busy.clone(), |bar, msg| bar.child(div().text_xs().text_color(c(theme::MUTED)).child(msg)))
@@ -593,9 +660,23 @@ impl Workspace {
                     .flex()
                     .gap_1()
                     .overflow_hidden()
-                    .children(commit.refs.iter().take(3).map(|r| ref_badge(r, color)))
-                    .when(commit.refs.len() > 3, |d| {
-                        d.child(div().text_xs().text_color(c(theme::MUTED)).child(format!("+{}", commit.refs.len() - 3)))
+                    .items_center()
+                    .when_some(primary_ref(&commit.refs), |d, (primary, rest)| {
+                        d.child(ref_badge(&primary, color)).when(rest > 0, |d| {
+                            d.child(
+                                div()
+                                    .flex_none()
+                                    .px_1()
+                                    .h(px(18.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded_sm()
+                                    .bg(c(theme::HOVER))
+                                    .text_xs()
+                                    .text_color(c(theme::MUTED))
+                                    .child(format!("+{rest}")),
+                            )
+                        })
                     }),
             )
             .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge })))
@@ -620,6 +701,8 @@ impl Workspace {
         let ws = cx.entity().downgrade();
         let current = self.status.branch.clone();
         let menu_id = id.clone();
+        let explanation = self.explanation.as_ref().filter(|(for_id, _)| *for_id == commit.id).map(|(_, text)| text.clone());
+        let explaining = self.ai_busy.as_ref().is_some_and(|b| b.as_ref() == "Explaining…");
 
         div()
             .flex()
@@ -631,40 +714,120 @@ impl Workspace {
                     .p_3()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap_3()
                     .border_b_1()
                     .border_color(c(theme::BORDER))
-                    .child(div().text_xs().text_color(c(theme::FAINT)).child(format!("commit {} · right-click for actions", commit.short_id)))
-                    .child(div().text_base().font_weight(FontWeight::BOLD).child(commit.summary.clone()))
-                    .when(!commit.body.is_empty(), |d| {
-                        d.child(div().text_sm().text_color(c(theme::MUTED)).child(commit.body.trim().to_string()))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_xs()
+                            .child(div().text_color(c(theme::FAINT)).child("commit"))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(commit.short_id.clone()))
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("explain-commit")
+                                    .label(if explaining { "Explaining…" } else { "✨ Explain commit" })
+                                    .xsmall()
+                                    .outline()
+                                    .disabled(self.ai_busy.is_some())
+                                    .on_click(cx.listener(|this, _, window, cx| this.explain_commit(window, cx))),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .p_3()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(c(theme::BORDER))
+                            .bg(c(theme::BG))
+                            .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(commit.summary.clone()))
+                            .when(!commit.body.trim().is_empty(), |d| {
+                                d.child(div().text_sm().text_color(c(theme::MUTED)).child(commit.body.trim().to_string()))
+                            }),
+                    )
+                    .when_some(explanation, |d, text| {
+                        d.child(
+                            div()
+                                .p_3()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(c(theme::ACCENT).opacity(0.5))
+                                .bg(c(theme::SELECTED).opacity(0.4))
+                                .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(c(theme::ACCENT)).child("✨ EXPLANATION"))
+                                .children(text.lines().map(|line| div().text_sm().child(line.to_string())).collect::<Vec<_>>()),
+                        )
                     })
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(c(theme::MUTED))
-                            .child(format!("{} <{}> · {}", commit.author_name, commit.author_email, relative_time(commit.time))),
+                            .flex()
+                            .gap_3()
+                            .items_start()
+                            .child(avatar(&commit.author_name, &commit.author_email))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).truncate().child(commit.author_name.clone()))
+                                    .child(div().text_xs().text_color(c(theme::FAINT)).truncate().child(commit.author_email.clone()))
+                                    .child(div().text_xs().text_color(c(theme::MUTED)).child(format!("authored {}", absolute_time(commit.time))))
+                                    .child(div().text_xs().text_color(c(theme::FAINT)).child(relative_time(commit.time))),
+                            )
+                            .when(!commit.parents.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .items_end()
+                                        .text_xs()
+                                        .child(div().text_color(c(theme::FAINT)).child(if commit.parents.len() > 1 { "parents" } else { "parent" }))
+                                        .children(commit.parents.iter().enumerate().map(|(i, parent)| {
+                                            let target = parent.clone();
+                                            div()
+                                                .id(("parent", i))
+                                                .text_color(c(theme::ACCENT))
+                                                .cursor_pointer()
+                                                .hover(|d| d.underline())
+                                                .child(parent[..7.min(parent.len())].to_string())
+                                                .on_click(cx.listener(move |this, _, _, cx| this.select_commit_id(&target, cx)))
+                                        })),
+                                )
+                            }),
                     )
                     .when_some(self.commit_signature.clone(), |d, sig| {
                         let color = if sig.is_good() { theme::ADD } else if sig.status == 'B' || sig.status == 'R' { theme::DEL } else { theme::WARN };
                         let signer = if sig.signer.is_empty() { String::new() } else { format!(" · {}", sig.signer) };
                         d.child(div().text_xs().text_color(c(color)).child(format!("{} {}{signer}", if sig.is_good() { "✓" } else { "⚠" }, sig.describe())))
                     })
-                    .when(!commit.parents.is_empty(), |d| {
-                        d.child(div().text_xs().text_color(c(theme::FAINT)).child(format!(
-                            "parent{} {}",
-                            if commit.parents.len() > 1 { "s" } else { "" },
-                            commit.parents.iter().map(|p| &p[..7]).collect::<Vec<_>>().join(" ")
-                        )))
-                    })
                     .context_menu(move |menu, _, _| menus::commit_menu(menu, &ws, &menu_id, current.as_deref())),
             )
-            .child(div().flex().items_center().pr_2().child(section_header("Changed files", self.commit_files.len())).child(self.folders_toggle("folders-commit", cx)))
+            .child(
+                div()
+                    .px_3()
+                    .pt_3()
+                    .pb_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(change_summary(&self.commit_files))
+                    .child(div().flex_1())
+                    .when(self.file_tree, |d| d.child(self.expand_all("commit", &self.commit_files, cx)))
+                    .child(self.view_switch("commit-view", cx)),
+            )
             .child(div().id("commit-files").flex_1().overflow_y_scroll().children(self.file_rows("commit", &self.commit_files).into_iter().enumerate().map(|(row, tree_row)| {
                 let (i, name, depth) = match tree_row {
                     TreeRow::File { index, name, depth } => (index, name, depth),
-                    TreeRow::Dir { path, name, depth, collapsed, .. } => {
-                        return self.folder_row(("cf", row).into(), "commit", &path, &name, depth, collapsed, cx).into_any_element();
+                    TreeRow::Dir { path, name, depth, collapsed, files } => {
+                        return self.folder_row(("cf", row).into(), "commit", &path, &name, depth, collapsed, files.len(), cx).into_any_element();
                     }
                 };
                 let f = &self.commit_files[i];
@@ -708,7 +871,7 @@ impl Workspace {
         file_tree::build(&paths, &collapsed)
     }
 
-    fn folder_row(&self, id: ElementId, key: &'static str, path: &str, name: &str, depth: usize, collapsed: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn folder_row(&self, id: ElementId, key: &'static str, path: &str, name: &str, depth: usize, collapsed: bool, count: usize, cx: &mut Context<Self>) -> Stateful<Div> {
         let toggle = format!("{key}:{path}");
         div()
             .id(id)
@@ -723,7 +886,8 @@ impl Workspace {
             .cursor_pointer()
             .hover(|s| s.bg(c(theme::HOVER)))
             .child(div().w(px(16.)).flex_none().text_xs().child(if collapsed { "▸" } else { "▾" }))
-            .child(div().flex_1().min_w_0().truncate().child(format!("{name}/")))
+            .child(div().min_w_0().truncate().child(format!("{name}/")))
+            .child(div().flex_1().text_xs().text_color(c(theme::FAINT)).child(count.to_string()))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if !this.collapsed_dirs.remove(&toggle) {
                     this.collapsed_dirs.insert(toggle.clone());
@@ -732,9 +896,36 @@ impl Workspace {
             }))
     }
 
-    fn folders_toggle(&self, id: &'static str, cx: &mut Context<Self>) -> Button {
-        Button::new(id).label(if self.file_tree { "✓ Folders" } else { "Folders" }).xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
-            this.file_tree = !this.file_tree;
+    /// Path / Tree switch shared by every file list.
+    fn view_switch(&self, id: &'static str, cx: &mut Context<Self>) -> Div {
+        div().flex().flex_none().children([("Path", false), ("Tree", true)].into_iter().enumerate().map(|(i, (label, tree))| {
+            Button::new((id, i))
+                .label(label)
+                .xsmall()
+                .when(self.file_tree == tree, |b| b.primary())
+                .when(self.file_tree != tree, |b| b.ghost())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.file_tree = tree;
+                    cx.notify();
+                }))
+        }))
+    }
+
+    /// "Collapse all" / "Expand all" for one list in folder view.
+    fn expand_all(&self, key: &'static str, files: &[FileChange], cx: &mut Context<Self>) -> Button {
+        let prefix = format!("{key}:");
+        let any_collapsed = self.collapsed_dirs.iter().any(|d| d.starts_with(&prefix));
+        let dirs: Vec<String> = self
+            .file_rows(key, files)
+            .into_iter()
+            .filter_map(|r| if let TreeRow::Dir { path, .. } = r { Some(format!("{prefix}{path}")) } else { None })
+            .collect();
+        Button::new((key, 99usize)).label(if any_collapsed { "Expand all" } else { "Collapse all" }).xsmall().ghost().on_click(cx.listener(move |this, _, _, cx| {
+            if any_collapsed {
+                this.collapsed_dirs.retain(|d| !d.starts_with(&prefix));
+            } else {
+                this.collapsed_dirs.extend(dirs.iter().cloned());
+            }
             cx.notify();
         }))
     }
@@ -751,7 +942,7 @@ impl Workspace {
                 TreeRow::Dir { path, name, depth, files: under, collapsed } => {
                     let under: Vec<FileChange> = under.into_iter().map(|i| files[i].clone()).collect();
                     return self
-                        .folder_row((id, row).into(), id, &path, &name, depth, collapsed, cx)
+                        .folder_row((id, row).into(), id, &path, &name, depth, collapsed, under.len(), cx)
                         .child(
                             Button::new((if staged { "unstage-dir" } else { "stage-dir" }, row))
                                 .label(if staged { "Unstage" } else { "Stage" })
@@ -848,7 +1039,7 @@ impl Workspace {
                     .items_center()
                     .pr_2()
                     .child(section_header("Unstaged files", unstaged.len()))
-                    .child(self.folders_toggle("folders-staging", cx))
+                    .child(self.view_switch("staging-view", cx))
                     .children(pick_button("stage-picked", picked_unstaged, false, cx))
                     .child(Button::new("stage-all").label("Stage all").xsmall().ghost().disabled(unstaged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Staging", Change::Status, cx, |r| r.stage_all())),
