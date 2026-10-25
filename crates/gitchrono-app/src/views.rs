@@ -7,6 +7,7 @@ use gitchrono_graph::Row;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -122,6 +123,9 @@ fn change_summary(files: &[FileChange]) -> Div {
         parts.into_iter().filter(|(n, ..)| *n > 0).map(|(n, what, color)| div().text_color(c(color)).child(format!("{n} {what}"))),
     )
 }
+
+/// The commit message and AI explanation scroll past this height.
+const MESSAGE_MAX_HEIGHT: f32 = 200.;
 
 /// Commit messages keep this much room; on narrow windows the graph shrinks first.
 const MIN_MESSAGE: f32 = 220.;
@@ -858,7 +862,22 @@ impl Workspace {
                             .gap_1()
                             .text_xs()
                             .child(div().text_color(c(theme::FAINT)).child("commit"))
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(commit.short_id.clone()))
+                            .child({
+                                let full = commit.id.clone();
+                                let copied = self.copied_sha.as_deref() == Some(commit.id.as_str());
+                                div()
+                                    .id("copy-sha")
+                                    .px_1()
+                                    .rounded_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(c(theme::HOVER)))
+                                    .child(commit.short_id.clone())
+                                    .when(copied, |d| d.child(div().ml_1().text_color(c(theme::ADD)).child("Copied ✓")))
+                                    .when(!copied, |d| d.child(div().ml_1().text_color(c(theme::FAINT)).child("copy")))
+                                    .flex()
+                                    .on_click(cx.listener(move |this, _, _, cx| this.copy_sha(&full, cx)))
+                            })
                             .child(div().flex_1())
                             .child(
                                 Button::new("explain-commit")
@@ -869,8 +888,14 @@ impl Workspace {
                                     .on_click(cx.listener(|this, _, window, cx| this.explain_commit(window, cx))),
                             ),
                     )
+                    // Long messages scroll inside the card instead of pushing the files down.
                     .child(
                         div()
+                            .id("commit-message")
+                            .relative()
+                            .max_h(px(MESSAGE_MAX_HEIGHT))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.message_scroll)
                             .p_3()
                             .flex()
                             .flex_col()
@@ -881,12 +906,26 @@ impl Workspace {
                             .bg(c(theme::BG))
                             .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(commit.summary.clone()))
                             .when(!commit.body.trim().is_empty(), |d| {
-                                d.child(div().text_sm().text_color(c(theme::MUTED)).child(commit.body.trim().to_string()))
-                            }),
+                                d.child(div().flex().flex_col().text_sm().text_color(c(theme::MUTED)).children(crate::message::reflow(&commit.body).into_iter().map(|line| {
+                                    if line.is_empty() {
+                                        div().h(px(8.))
+                                    } else if line.starts_with("    ") {
+                                        div().font_family("monospace").text_xs().whitespace_nowrap().child(line)
+                                    } else {
+                                        div().child(line)
+                                    }
+                                })))
+                            })
+                            .vertical_scrollbar(&self.message_scroll),
                     )
                     .when_some(explanation, |d, text| {
                         d.child(
                             div()
+                                .id("commit-explanation")
+                                .relative()
+                                .max_h(px(MESSAGE_MAX_HEIGHT))
+                                .overflow_y_scroll()
+                                .track_scroll(&self.explanation_scroll)
                                 .p_3()
                                 .flex()
                                 .flex_col()
@@ -896,7 +935,8 @@ impl Workspace {
                                 .border_color(c(theme::ACCENT).opacity(0.5))
                                 .bg(c(theme::SELECTED).opacity(0.4))
                                 .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(c(theme::ACCENT)).child("✨ EXPLANATION"))
-                                .children(text.lines().map(|line| div().text_sm().child(line.to_string())).collect::<Vec<_>>()),
+                                .children(text.lines().map(|line| div().text_sm().child(line.to_string())).collect::<Vec<_>>())
+                                .vertical_scrollbar(&self.explanation_scroll),
                         )
                     })
                     .child(

@@ -11,6 +11,7 @@ mod graph_paint;
 mod highlight;
 mod history;
 mod menus;
+mod message;
 mod palette;
 mod projects;
 mod rebase_ui;
@@ -34,6 +35,8 @@ fn main() {
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
+        // Scrollable boxes (like a long commit message) show their scrollbar.
+        Theme::set_scrollbar_mode(gpui_kit::component::scroll::ScrollbarMode::Always, cx);
         terminal::init(cx);
         shell::init(cx);
         palette::init(cx);

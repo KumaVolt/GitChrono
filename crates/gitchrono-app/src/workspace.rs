@@ -127,6 +127,11 @@ pub struct Workspace {
     pub graph_width: Option<f32>,
     /// Re-render when a profile picture finishes downloading.
     _avatars: Subscription,
+    /// Scroll positions of the commit message and AI explanation boxes.
+    pub message_scroll: ScrollHandle,
+    pub explanation_scroll: ScrollHandle,
+    /// Commit whose id was just copied, for a moment of "Copied ✓".
+    pub copied_sha: Option<String>,
     /// AI explanation of a commit: (commit id, text).
     pub explanation: Option<(String, SharedString)>,
     /// Folder view for file lists (staging and commit files) instead of full paths.
@@ -208,6 +213,9 @@ impl Workspace {
             multi: Vec::new(),
             file_multi: (false, Vec::new()),
             explanation: None,
+            copied_sha: None,
+            message_scroll: ScrollHandle::new(),
+            explanation_scroll: ScrollHandle::new(),
             graph_width: None,
             _avatars: cx.observe(&cx.global::<crate::avatars::AvatarStore>().0.clone(), |_, _, cx| cx.notify()),
             refs_hover: (None, None),
@@ -786,6 +794,24 @@ impl Workspace {
             crate::projects::save_ref_filter(repo.root(), &self.ref_filter);
         }
         self.reload(cx);
+    }
+
+    pub fn copy_sha(&mut self, id: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(id.to_string()));
+        self.copied_sha = Some(id.to_string());
+        cx.notify();
+        let id = id.to_string();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
+            this.update(cx, |this, cx| {
+                if this.copied_sha.as_deref() == Some(id.as_str()) {
+                    this.copied_sha = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Staging list click: plain picks one file (and the caller shows its diff,
