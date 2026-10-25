@@ -15,6 +15,7 @@ else
   cp "$1" "$app/Contents/MacOS/gitchrono"
 fi
 chmod +x "$app/Contents/MacOS/gitchrono"
+cp packaging/macos/GitChrono.icns "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -25,6 +26,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>GitChrono</string>
   <key>CFBundleIdentifier</key><string>com.gitchrono.app</string>
   <key>CFBundleExecutable</key><string>gitchrono</string>
+  <key>CFBundleIconFile</key><string>GitChrono</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${version}</string>

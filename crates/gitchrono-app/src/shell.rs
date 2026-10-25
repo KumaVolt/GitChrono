@@ -38,6 +38,13 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
+/// The app icon, drawn by `scripts/make-icons.py`.
+fn logo() -> std::sync::Arc<Image> {
+    static LOGO: std::sync::OnceLock<std::sync::Arc<Image>> = std::sync::OnceLock::new();
+    LOGO.get_or_init(|| std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, include_bytes!("../../../packaging/linux/gitchrono.png").to_vec())))
+        .clone()
+}
+
 enum Tab {
     Home,
     Repo { path: PathBuf, view: Entity<Workspace>, _sub: Subscription },
@@ -450,7 +457,14 @@ impl Shell {
 
         let mut body = div().w_full().max_w(px(820.)).flex().flex_col();
         body = body
-            .child(div().text_2xl().font_weight(FontWeight::BOLD).child("Open a repository"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(img(logo()).size(px(44.)).flex_none())
+                    .child(div().text_2xl().font_weight(FontWeight::BOLD).child("Open a repository")),
+            )
             .child(
                 div().mt_1().text_sm().text_color(c(theme::MUTED)).child(
                     "Pick a repository, or a parent folder: GitChrono finds every repository inside it and keeps the folder here.",

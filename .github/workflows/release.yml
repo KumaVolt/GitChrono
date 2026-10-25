@@ -93,7 +93,7 @@ jobs:
           cargo build --release -p gitchrono-app --target ${{ matrix.target }}
           name="GitChrono-${{ steps.version.outputs.version }}-${{ matrix.name }}"
           mkdir -p "dist/$name"
-          cp target/${{ matrix.target }}/release/gitchrono packaging/linux/gitchrono.desktop README.md "dist/$name/"
+          cp target/${{ matrix.target }}/release/gitchrono packaging/linux/gitchrono.desktop packaging/linux/gitchrono.png README.md "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
 

@@ -3,5 +3,6 @@ Type=Application
 Name=GitChrono
 Comment=A fast, native Git client
 Exec=gitchrono %F
+Icon=gitchrono
 Terminal=false
 Categories=Development;RevisionControl;
