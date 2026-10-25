@@ -42,7 +42,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Undo / redo of operations | ✅ ref snapshots before/after every op; soft undo for commits, `reset --keep` otherwise |
 | Submodules, LFS, worktrees | 🟡 worktrees ✅, submodules ✅ (list, init/update, open in tab); LFS todo |
 | Commit signing indicators | ✅ GPG/SSH status in commit details |
-| Graph compaction for wide histories | 🟡 lanes waiting on the same commit join early, on par with `git log --graph`; resizable graph column todo |
+| Graph compaction for wide histories | 🟡 date order keeps wide histories close to `git log --graph --date-order`; resizable graph column todo |
 | Packaging: signed .dmg, Windows, Linux, auto-update | ⬜ |
 
 ## Tier 3 — Complete
