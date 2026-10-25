@@ -5,10 +5,14 @@ use gpui_kit::*;
 
 use crate::theme;
 
-pub const ROW_HEIGHT: f32 = 30.;
-pub const LANE_WIDTH: f32 = 16.;
+pub const ROW_HEIGHT: f32 = 26.;
+/// Lanes are this wide while the graph fits in `MAX_GUTTER`, then narrow down
+/// to `MIN_LANE_WIDTH` so wide histories show more lanes before clipping.
+const LANE_WIDTH: f32 = 16.;
+const MIN_LANE_WIDTH: f32 = 10.;
+const MAX_GUTTER: f32 = 360.;
 const PAD: f32 = 10.;
-const NODE_RADIUS: f32 = 6.;
+const NODE_RADIUS: f32 = 5.5;
 
 #[derive(Clone, Copy)]
 pub enum Node {
@@ -17,20 +21,23 @@ pub enum Node {
     Wip,
 }
 
-fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
-    bounds.left() + px(PAD + lane as f32 * LANE_WIDTH + LANE_WIDTH / 2.)
+fn lane_x(bounds: &Bounds<Pixels>, lane: usize, lane_width: f32) -> Pixels {
+    bounds.left() + px(PAD + lane as f32 * lane_width + lane_width / 2.)
 }
 
-pub fn gutter_width(max_lane: usize) -> Pixels {
-    px((PAD * 2. + (max_lane + 1) as f32 * LANE_WIDTH).min(240.))
+/// Graph column width and the lane width to paint with.
+pub fn gutter(max_lane: usize) -> (Pixels, f32) {
+    let lanes = (max_lane + 1) as f32;
+    let lane_width = ((MAX_GUTTER - PAD * 2.) / lanes).clamp(MIN_LANE_WIDTH, LANE_WIDTH);
+    (px((PAD * 2. + lanes * lane_width).min(MAX_GUTTER)), lane_width)
 }
 
-pub fn row_canvas(row: Row, node: Node) -> impl IntoElement {
+pub fn row_canvas(row: Row, node: Node, lane_width: f32) -> impl IntoElement {
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
             window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                paint_row(bounds, &row, node, window);
+                paint_row(bounds, &row, node, lane_width, window);
             });
         },
     )
@@ -51,7 +58,8 @@ fn segment(window: &mut Window, from: Point<Pixels>, to: Point<Pixels>, color: H
     }
 }
 
-fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, window: &mut Window) {
+fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, lane_width: f32, window: &mut Window) {
+    let lane_x = |bounds: &Bounds<Pixels>, lane: usize| lane_x(bounds, lane, lane_width);
     let top = bounds.top();
     let bottom = bounds.bottom();
     let mid = top + px(ROW_HEIGHT / 2.);

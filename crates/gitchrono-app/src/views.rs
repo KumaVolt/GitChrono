@@ -433,7 +433,7 @@ impl Workspace {
     }
 
     fn render_graph(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let gutter = graph_paint::gutter_width(self.graph.max_lane);
+        let (gutter, lane_width) = graph_paint::gutter(self.graph.max_lane);
         let header = div()
             .h(px(26.))
             .flex_none()
@@ -454,7 +454,7 @@ impl Workspace {
             "commits",
             self.row_count(),
             cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                range.map(|row| this.render_row(row, gutter, cx)).collect::<Vec<_>>()
+                range.map(|row| this.render_row(row, gutter, lane_width, cx)).collect::<Vec<_>>()
             }),
         )
         .track_scroll(&self.list_scroll)
@@ -526,7 +526,7 @@ impl Workspace {
         )
     }
 
-    fn render_row(&self, row: usize, gutter: Pixels, cx: &mut Context<Self>) -> AnyElement {
+    fn render_row(&self, row: usize, gutter: Pixels, lane_width: f32, cx: &mut Context<Self>) -> AnyElement {
         let wip = self.has_wip();
         let base = div()
             .id(row)
@@ -559,7 +559,7 @@ impl Workspace {
                         .w(gutter)
                         .h_full()
                         .flex_none()
-                        .child(graph_paint::row_canvas(Row { lane: head_lane, ..Default::default() }, Node::Wip)),
+                        .child(graph_paint::row_canvas(Row { lane: head_lane, ..Default::default() }, Node::Wip, lane_width)),
                 )
                 .child(
                     div()
@@ -598,7 +598,7 @@ impl Workspace {
                         d.child(div().text_xs().text_color(c(theme::MUTED)).child(format!("+{}", commit.refs.len() - 3)))
                     }),
             )
-            .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge })))
+            .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge }, lane_width)))
             .child(
                 div()
                     .flex_1()

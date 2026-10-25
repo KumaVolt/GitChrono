@@ -100,11 +100,23 @@ where
         lanes[lane] = None;
         for (pi, parent) in parents.into_iter().enumerate() {
             if pi == 0 {
-                // First parent always continues straight down; if other lanes also
-                // wait for it they converge on the parent's row (lowest lane wins).
-                lanes[lane] = Some(parent);
-                waiting.entry(parent).or_default().push(lane);
-                edges.push(Edge { from_lane: lane, to_lane: lane, color, from_node: true, to_node: false });
+                // First parent continues straight down, unless another lane already
+                // waits for it: then the two join here, into the lower lane, instead
+                // of running side by side to the parent's row (as `git log --graph`).
+                let others = waiting.get(parent).cloned().unwrap_or_default();
+                let target = others.iter().copied().chain([lane]).min().unwrap_or(lane);
+                edges.push(Edge { from_lane: lane, to_lane: target, color: if target == lane { color } else { lane_color[target] }, from_node: true, to_node: false });
+                if target == lane {
+                    lanes[lane] = Some(parent);
+                    for &other in &others {
+                        // Its pass-through bends into our lane on this row.
+                        if let Some(e) = edges.iter_mut().find(|e| e.from_lane == other && e.to_lane == other && !e.from_node && !e.to_node) {
+                            e.to_lane = lane;
+                        }
+                        lanes[other] = None;
+                    }
+                }
+                waiting.insert(parent, vec![target]);
             } else {
                 let (plane, pcolor) = match waiting.get(parent).and_then(|v| v.first()) {
                     Some(&l) => (l, lane_color[l]),
@@ -163,5 +175,25 @@ mod tests {
         assert_eq!(g.rows[0].lane, 0);
         assert_eq!(g.rows[1].lane, 1);
         assert_eq!(g.rows[2].lane, 0);
+    }
+
+    #[test]
+    fn branches_from_the_same_commit_share_a_lane_early() {
+        // Three tips forked from `a`, with unrelated mainline commits in between:
+        // y and z join x's lane right away instead of each running down to `a`.
+        let g = run(&[("x", &["a"]), ("y", &["a"]), ("z", &["a"]), ("m2", &["m1"]), ("m1", &["a"]), ("a", &[])]);
+        assert_eq!((g.rows[0].lane, g.rows[1].lane, g.rows[2].lane), (0, 1, 1), "z reuses the lane y freed");
+        assert!(g.rows[1].edges.iter().any(|e| e.from_node && e.from_lane == 1 && e.to_lane == 0), "y bends into x's lane");
+        assert_eq!(g.rows[3].lane, 1, "the mainline takes the next free lane");
+        assert_eq!(g.max_lane, 1, "never more than two lanes");
+    }
+
+    #[test]
+    fn a_lower_lane_pulls_in_higher_ones_waiting_for_the_same_parent() {
+        // q (lane 1) waits for `a`; then p in lane 0 also needs `a`: q's line bends into lane 0.
+        let g = run(&[("m", &["p", "q"]), ("q", &["a"]), ("p", &["a"]), ("a", &[])]);
+        assert_eq!(g.rows[2].lane, 0);
+        assert!(g.rows[2].edges.iter().any(|e| !e.from_node && !e.to_node && e.from_lane == 1 && e.to_lane == 0));
+        assert!(g.rows[3].edges.iter().all(|e| e.from_lane == 0 && e.to_lane == 0), "only lane 0 reaches `a`");
     }
 }
