@@ -32,6 +32,26 @@ pub fn reflow(body: &str) -> Vec<String> {
     out
 }
 
+/// `Co-authored-by: Name <email>` trailers, as (name, email), in order and without repeats.
+pub fn co_authors(body: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for line in body.lines() {
+        let Some((key, value)) = line.trim().split_once(':') else { continue };
+        if !key.trim().eq_ignore_ascii_case("co-authored-by") {
+            continue;
+        }
+        let value = value.trim();
+        let (name, email) = match value.split_once('<') {
+            Some((name, rest)) => (name.trim(), rest.trim_end_matches('>').trim()),
+            None => (value, ""),
+        };
+        if !name.is_empty() && !out.iter().any(|(n, e)| n == name && e == email) {
+            out.push((name.to_string(), email.to_string()));
+        }
+    }
+    out
+}
+
 fn is_item(text: &str) -> bool {
     ["- ", "* ", "• ", "> "].iter().any(|p| text.starts_with(p)) || {
         let digits = text.chars().take_while(char::is_ascii_digit).count();
@@ -46,7 +66,7 @@ fn is_trailer(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::reflow;
+    use super::{co_authors, reflow};
 
     #[test]
     fn joins_wrapped_lines_and_keeps_structure() {
@@ -76,6 +96,15 @@ mod tests {
                 "Co-Authored-By: Claude <noreply@anthropic.com>",
                 "Claude-Session: https://claude.ai/x",
             ]
+        );
+    }
+
+    #[test]
+    fn finds_co_authors() {
+        let body = "Fix it\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nco-authored-by: Ada Park <ada@example.com>\nCo-authored-by: Ada Park <ada@example.com>\nSigned-off-by: Leo <leo@x>";
+        assert_eq!(
+            co_authors(body),
+            [("Claude Opus 5.5".to_string(), "noreply@anthropic.com".to_string()), ("Ada Park".to_string(), "ada@example.com".to_string())]
         );
     }
 

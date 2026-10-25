@@ -48,6 +48,7 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ("Alacritty", "terminal emulation (Apache-2.0)", "https://github.com/alacritty/alacritty"),
     ("syntect", "syntax highlighting in diffs (MIT)", "https://github.com/trishume/syntect"),
     ("Gravatar", "profile pictures, when turned on in Settings", "https://gravatar.com"),
+    ("Claude Code", "Anthropic's AI coding assistant, which helped build GitChrono", "https://claude.com/claude-code"),
 ];
 
 /// First check shortly after launch, then every six hours.

@@ -90,11 +90,15 @@ fn absolute_time(secs: i64) -> String {
 
 /// Initials on a color picked from the email, so each author keeps theirs.
 fn avatar(name: &str, email: &str) -> Div {
+    avatar_sized(name, email, 36.)
+}
+
+fn avatar_sized(name: &str, email: &str, size: f32) -> Div {
     let initials: String = name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase();
     let hash = email.to_lowercase().bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize));
     let color = theme::lane(hash);
     div()
-        .size(px(36.))
+        .size(px(size))
         .flex_none()
         .flex()
         .items_center()
@@ -103,7 +107,8 @@ fn avatar(name: &str, email: &str) -> Div {
         .bg(color.opacity(0.25))
         .border_1()
         .border_color(color)
-        .text_sm()
+        .when(size < 30., |d| d.text_size(px(size * 0.42)))
+        .when(size >= 30., |d| d.text_sm())
         .font_weight(FontWeight::BOLD)
         .child(if initials.is_empty() { "?".to_string() } else { initials })
 }
@@ -980,6 +985,36 @@ impl Workspace {
                                 )
                             }),
                     )
+                    // `Co-authored-by:` trailers, each with a picture (or initials) and name.
+                    .when(!crate::message::co_authors(&commit.body).is_empty(), |d| {
+                        let people = crate::message::co_authors(&commit.body);
+                        d.child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .items_center()
+                                .gap_2()
+                                .text_xs()
+                                .child(div().text_color(c(theme::FAINT)).child(if people.len() == 1 { "Co-author" } else { "Co-authors" }))
+                                .children(people.into_iter().map(|(name, email)| {
+                                    let picture = crate::avatars::for_email(&email, cx);
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .pl_0p5()
+                                        .pr_2()
+                                        .py_0p5()
+                                        .rounded_full()
+                                        .bg(c(theme::BG))
+                                        .child(match picture {
+                                            Some(path) => img(path).size(px(20.)).flex_none().rounded_full().into_any_element(),
+                                            None => avatar_sized(&name, &email, 20.).into_any_element(),
+                                        })
+                                        .child(div().text_color(c(theme::TEXT)).child(name))
+                                })),
+                        )
+                    })
                     .when_some(self.commit_signature.clone(), |d, sig| {
                         let color = if sig.is_good() { theme::ADD } else if sig.status == 'B' || sig.status == 'R' { theme::DEL } else { theme::WARN };
                         let signer = if sig.signer.is_empty() { String::new() } else { format!(" · {}", sig.signer) };
