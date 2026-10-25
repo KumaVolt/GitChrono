@@ -123,6 +123,18 @@ fn change_summary(files: &[FileChange]) -> Div {
     )
 }
 
+/// Commit messages keep this much room; on narrow windows the graph shrinks first.
+const MIN_MESSAGE: f32 = 220.;
+
+/// Dragged by the graph column's resize handle.
+pub struct GraphResize;
+
+impl Render for GraphResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
 fn status_letter(change: &FileChange) -> Div {
     use gitchrono_core::FileStatus::*;
     let color = match change.status {
@@ -500,7 +512,7 @@ impl Workspace {
     }
 
     fn render_graph(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let gutter = graph_paint::gutter_width(self.graph.max_lane);
+        let gutter = self.graph_width.map(px).unwrap_or_else(|| graph_paint::gutter_width(self.graph.max_lane));
         let header = div()
             .h(px(26.))
             .flex_none()
@@ -512,8 +524,41 @@ impl Workspace {
             .border_b_1()
             .border_color(c(theme::BORDER))
             .child(div().w(px(170.)).px_3().child("BRANCH / TAG"))
-            .child(div().w(gutter).flex_none().px_2().overflow_hidden().whitespace_nowrap().child("GRAPH"))
-            .child(div().flex_1().px_2().child("COMMIT MESSAGE"))
+            .child(
+                div()
+                    .relative()
+                    .w(gutter)
+                    .min_w(px(graph_paint::MIN_GUTTER))
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .px_2()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child("GRAPH")
+                    // Drag to resize the graph column; double-click returns to automatic width.
+                    .child(
+                        div()
+                            .id("graph-resize")
+                            .absolute()
+                            .right_0()
+                            .top_0()
+                            .h_full()
+                            .w(px(6.))
+                            .border_r_1()
+                            .border_color(c(theme::BORDER))
+                            .cursor(CursorStyle::ResizeLeftRight)
+                            .hover(|d| d.border_color(c(theme::ACCENT)))
+                            .on_drag(GraphResize, |_, _, _, cx| cx.new(|_| GraphResize))
+                            .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
+                                if ev.click_count() >= 2 {
+                                    this.graph_width = None;
+                                    cx.notify();
+                                }
+                            })),
+                    ),
+            )
+            .child(div().flex_1().min_w(px(MIN_MESSAGE)).px_2().child("COMMIT MESSAGE"))
             .child(div().w(px(150.)).px_2().child("AUTHOR"))
             .child(div().w(px(110.)).px_2().child("DATE"));
 
@@ -534,6 +579,12 @@ impl Workspace {
             .flex()
             .flex_col()
             .bg(c(theme::BG))
+            .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<GraphResize>, _, cx| {
+                // The graph column starts after the 170px branch/tag column.
+                let x = f32::from(ev.event.position.x - ev.bounds.left()) - 170.;
+                this.graph_width = Some(x.clamp(graph_paint::MIN_GUTTER, 600.));
+                cx.notify();
+            }))
             .children(self.render_search_bar(cx))
             .when(!self.ref_filter.is_empty(), |d| {
                 let f = &self.ref_filter;
@@ -641,8 +692,8 @@ impl Workspace {
                 .child(
                     div()
                         .w(gutter)
+                        .min_w(px(graph_paint::MIN_GUTTER))
                         .h_full()
-                        .flex_none()
                         .child(graph_paint::row_canvas(Row { lane: head_lane, ..Default::default() }, Node::Wip)),
                 )
                 .child(
@@ -737,11 +788,18 @@ impl Workspace {
                         .child(div().flex_1().min_w(px(4.)).h_px().bg(color.opacity(0.6)))
                     }),
             )
-            .child(div().w(gutter).h_full().flex_none().overflow_hidden().child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty() })))
+            .child(
+                div()
+                    .w(gutter)
+                    .min_w(px(graph_paint::MIN_GUTTER))
+                    .h_full()
+                    .overflow_hidden()
+                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty() })),
+            )
             .child(
                 div()
                     .flex_1()
-                    .min_w_0()
+                    .min_w(px(MIN_MESSAGE))
                     .px_2()
                     .truncate()
                     .text_color(c(if merge { theme::MUTED } else { theme::TEXT }))

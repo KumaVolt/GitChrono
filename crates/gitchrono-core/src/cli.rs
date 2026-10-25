@@ -456,9 +456,25 @@ impl Repo {
         self.git(&["checkout", target]).map(drop)
     }
 
-    /// Check out a remote branch as a new tracking local branch.
+    /// Check out a remote branch. If a local branch of the same name exists,
+    /// switch to it and fast-forward it when it's only behind; otherwise
+    /// create a tracking branch.
     pub fn checkout_remote(&self, remote_branch: &str) -> Result<()> {
-        self.git(&["checkout", "--track", remote_branch]).map(drop)
+        let remotes = self.git(&["remote"])?;
+        // The longest matching remote wins, as remote names may contain '/'.
+        let local = remotes
+            .lines()
+            .filter_map(|r| remote_branch.strip_prefix(r).and_then(|rest| rest.strip_prefix('/')).map(|rest| (r.len(), rest)))
+            .max_by_key(|(len, _)| *len)
+            .map(|(_, rest)| rest);
+        let Some(local) = local.filter(|l| self.git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{l}")]).is_ok()) else {
+            return self.git(&["checkout", "--track", remote_branch]).map(drop);
+        };
+        self.git(&["checkout", local])?;
+        if self.git(&["merge-base", "--is-ancestor", local, remote_branch]).is_ok() {
+            self.git(&["merge", "--ff-only", "--quiet", remote_branch])?;
+        }
+        Ok(())
     }
 
     pub fn create_branch(&self, name: &str, start: Option<&str>, checkout: bool) -> Result<()> {

@@ -10,6 +10,8 @@ const LANE_WIDTH: f32 = 20.;
 /// Wider graphs clip here rather than squeezing lanes together.
 const MAX_GUTTER: f32 = 340.;
 const PAD: f32 = 10.;
+/// Narrowest graph column: one dot per commit, as GitKraken does when collapsed.
+pub const MIN_GUTTER: f32 = 28.;
 const NODE_RADIUS: f32 = 6.;
 /// Corner radius of the elbow joining a node to another lane.
 const ELBOW: f32 = 8.;
@@ -86,6 +88,14 @@ fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, window: &mut Window)
     let top = bounds.top();
     let bottom = bounds.bottom();
     let mid = top + px(ROW_HEIGHT / 2.);
+    // Too narrow for two lanes: just the dots, centred.
+    if bounds.size.width < px(PAD * 2. + LANE_WIDTH * 2.) {
+        let x = bounds.left() + bounds.size.width / 2.;
+        let hollow = matches!(node, Node::Wip | Node::Commit { merge: true, .. });
+        let color = if let Node::Wip = node { theme::c(theme::MUTED).into() } else { theme::lane(row.color) };
+        paint_node(window, x, mid, color, hollow);
+        return;
+    }
     let node_x = lane_x(&bounds, row.lane);
 
     if let Node::Wip = node {

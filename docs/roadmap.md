@@ -42,14 +42,14 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Undo / redo of operations | ✅ ref snapshots before/after every op; soft undo for commits, `reset --keep` otherwise |
 | Submodules, LFS, worktrees | 🟡 worktrees ✅, submodules ✅ (list, init/update, open in tab); LFS todo |
 | Commit signing indicators | ✅ GPG/SSH status in commit details |
-| Graph compaction for wide histories | 🟡 date order keeps wide histories close to `git log --graph --date-order`; resizable graph column todo |
+| Graph compaction for wide histories | 🟡 date order keeps wide histories close to `git log --graph --date-order`; drag the graph column's edge (down to one dot per commit) |
 | Packaging: signed .dmg, Windows, Linux, auto-update | ⬜ |
 
 ## Tier 3 — Complete
 | Feature | Status |
 |---|---|
 | Launchpad: PRs/issues across GitHub/GitLab/Bitbucket/Azure | 💎 |
-| Hosting integrations (OAuth, create PR, clone from) | ⬜ / 💎 |
+| Hosting integrations (OAuth, create PR, clone from) | ⬜ / 💎 sign-in waits for a server for the OAuth flow |
 | Workspaces (multi-repo) | 🟡 project folders; multi-repo fetch/pull still todo |
 | Settings page: git identity, defaults, signing, SSH keys | ✅ global or per repo; generate/test Ed25519 keys |
 | Profiles | ⬜ |

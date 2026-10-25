@@ -123,6 +123,8 @@ pub struct Workspace {
     pub file_multi: (bool, Vec<String>),
     /// Graph row whose ref labels are hovered: (label cell, the full list it opens).
     pub refs_hover: (Option<usize>, Option<usize>),
+    /// Graph column width set by dragging its edge; `None` sizes it to the lanes.
+    pub graph_width: Option<f32>,
     /// AI explanation of a commit: (commit id, text).
     pub explanation: Option<(String, SharedString)>,
     /// Folder view for file lists (staging and commit files) instead of full paths.
@@ -204,6 +206,7 @@ impl Workspace {
             multi: Vec::new(),
             file_multi: (false, Vec::new()),
             explanation: None,
+            graph_width: None,
             refs_hover: (None, None),
             file_tree: std::env::var_os("GITCHRONO_FOLDERS").is_some(),
             collapsed_dirs: Default::default(),
