@@ -113,10 +113,20 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      # Hand-written notes in docs/release-notes/<tag>.md, when there are any;
+      # GitHub's generated list of changes is appended either way.
+      - name: Release notes
+        id: notes
+        run: |
+          f="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$f" ]; then echo "path=$f" >> "$GITHUB_OUTPUT"; fi
 
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
@@ -126,6 +136,7 @@ jobs:
           name: GitChrono ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
           files: dist/*
 
       # Releases made with GITHUB_TOKEN don't trigger other workflows, but a
