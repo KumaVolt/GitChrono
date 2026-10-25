@@ -39,7 +39,7 @@ pub fn init(cx: &mut App) {
 }
 
 /// The app icon, drawn by `scripts/make-icons.py`.
-fn logo() -> std::sync::Arc<Image> {
+pub(crate) fn logo() -> std::sync::Arc<Image> {
     static LOGO: std::sync::OnceLock<std::sync::Arc<Image>> = std::sync::OnceLock::new();
     LOGO.get_or_init(|| std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, include_bytes!("../../../packaging/linux/gitchrono.png").to_vec())))
         .clone()
@@ -55,7 +55,9 @@ pub struct Shell {
     pub(crate) active: usize,
     pub(crate) palette: Option<crate::palette::Palette>,
     pub(crate) settings: Option<crate::settings::Settings>,
-    session: Session,
+    pub(crate) update: crate::footer::UpdateState,
+    pub(crate) about: Option<crate::footer::About>,
+    pub(crate) session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
     filter: Entity<InputState>,
@@ -74,6 +76,9 @@ impl Shell {
             if event.keystroke.key == "escape" {
                 if this.palette.is_some() {
                     this.close_palette(cx);
+                } else if this.about.is_some() {
+                    this.about = None;
+                    cx.notify();
                 } else if this.settings.is_some() {
                     this.close_settings(cx);
                 } else if let Some(ws) = this.active_workspace().cloned() {
@@ -83,7 +88,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         for path in session.tabs.iter().filter(|p| projects::is_repo(p)) {
             this.push_repo(path.clone(), window, cx);
@@ -99,6 +104,7 @@ impl Shell {
             this.tabs.push(Tab::Home);
         }
         this.activate(this.active, window, cx);
+        this.schedule_update_checks(cx);
         // `GITCHRONO_SETTINGS=1`: open the settings page on launch (screenshots).
         if std::env::var_os("GITCHRONO_SETTINGS").is_some() {
             this.open_settings(this.active_repo_path(), window, cx);
@@ -233,6 +239,18 @@ impl Shell {
             Some(Tab::Repo { view, .. }) => Some(view),
             _ => None,
         }
+    }
+
+    pub(crate) fn auto_update_enabled(&self) -> bool {
+        self.session.auto_update.unwrap_or(true)
+    }
+
+    /// Changes an app preference stored with the session.
+    pub(crate) fn set_pref(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Session)) {
+        change(&mut self.session);
+        cx.set_global(crate::avatars::Prefs { gravatar: self.session.gravatar });
+        self.save_session();
+        cx.refresh_windows();
     }
 
     pub(crate) fn active_repo_path(&self) -> Option<PathBuf> {
@@ -601,6 +619,8 @@ impl Render for Shell {
             .relative()
             .child(self.render_tab_bar(cx))
             .child(div().flex_1().min_h_0().child(content))
+            .child(self.render_footer(cx))
             .children(self.render_palette(cx))
+            .children(self.render_about(cx))
     }
 }

@@ -24,6 +24,14 @@ pub enum Node {
     Wip,
 }
 
+/// Narrowest graph column that still draws lanes (below it: dots only).
+pub const MIN_FULL_GUTTER: f32 = PAD * 2. + LANE_WIDTH * 2.;
+
+/// A node's centre, from the left of the graph column.
+pub fn node_x(lane: usize) -> f32 {
+    PAD + lane as f32 * LANE_WIDTH + LANE_WIDTH / 2.
+}
+
 fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
     bounds.left() + px(PAD + lane as f32 * LANE_WIDTH + LANE_WIDTH / 2.)
 }
@@ -89,7 +97,7 @@ fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, window: &mut Window)
     let bottom = bounds.bottom();
     let mid = top + px(ROW_HEIGHT / 2.);
     // Too narrow for two lanes: just the dots, centred.
-    if bounds.size.width < px(PAD * 2. + LANE_WIDTH * 2.) {
+    if bounds.size.width < px(MIN_FULL_GUTTER) {
         let x = bounds.left() + bounds.size.width / 2.;
         let hollow = matches!(node, Node::Wip | Node::Commit { merge: true, .. });
         let color = if let Node::Wip = node { theme::c(theme::MUTED).into() } else { theme::lane(row.color) };

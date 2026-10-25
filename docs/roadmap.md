@@ -43,7 +43,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Submodules, LFS, worktrees | 🟡 worktrees ✅, submodules ✅ (list, init/update, open in tab); LFS todo |
 | Commit signing indicators | ✅ GPG/SSH status in commit details |
 | Graph compaction for wide histories | 🟡 date order keeps wide histories close to `git log --graph --date-order`; drag the graph column's edge (down to one dot per commit) |
-| Packaging: signed .dmg, Windows, Linux, auto-update | ⬜ |
+| Packaging: signed .dmg, Windows, Linux, auto-update | 🟡 auto-update from GitHub releases (checksum-verified) ✅; signing todo |
 
 ## Tier 3 — Complete
 | Feature | Status |
@@ -52,6 +52,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Hosting integrations (OAuth, create PR, clone from) | ⬜ / 💎 sign-in waits for a server for the OAuth flow |
 | Workspaces (multi-repo) | 🟡 project folders; multi-repo fetch/pull still todo |
 | Settings page: git identity, defaults, signing, SSH keys | ✅ global or per repo; generate/test Ed25519 keys |
+| Profile pictures (Gravatar, GitHub no-reply), opt-in | ✅ |
+| Footer: version, update status, About & credits | ✅ |
 | Profiles | ⬜ |
 | AI commit messages / explain commit | 🟡 commit message, explain commit, branch & stash names (BYOK) |
 | Release notes from tag range → gitchrono.com changelog | 💎 |

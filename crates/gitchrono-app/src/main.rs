@@ -1,8 +1,10 @@
 mod ai;
+mod avatars;
 mod conflict_ui;
 mod diff_view;
 mod drag;
 mod file_tree;
+mod footer;
 mod fuzzy;
 mod github;
 mod graph_paint;
@@ -16,6 +18,7 @@ mod settings;
 mod shell;
 mod terminal;
 mod theme;
+mod update;
 mod views;
 mod watcher;
 mod workspace;
@@ -35,6 +38,8 @@ fn main() {
         shell::init(cx);
         palette::init(cx);
         workspace::init(cx);
+        avatars::init(projects::Session::load().gravatar, cx);
+        update::cleanup();
 
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let options = WindowOptions {

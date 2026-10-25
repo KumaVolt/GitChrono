@@ -428,6 +428,7 @@ impl Shell {
             .when_some(s.message.clone(), |d, (ok, text)| {
                 d.child(div().text_sm().text_color(c(if ok { theme::ADD } else { theme::DEL })).child(text))
             })
+            .child(self.render_app_prefs(cx))
             .child(
                 div()
                     .flex()
@@ -438,6 +439,60 @@ impl Shell {
             );
 
         Some(div().id("settings-page").size_full().overflow_y_scroll().flex().justify_center().items_start().px_8().py_10().bg(c(theme::BG)).child(body))
+    }
+}
+
+impl Shell {
+    /// GitChrono's own preferences; unlike the git settings they apply at once.
+    fn render_app_prefs(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let switch = |id: &'static str, on: bool, cx: &mut Context<Self>, set: fn(&mut crate::projects::Session, bool)| {
+            div().flex().gap_1().children([("Off", false), ("On", true)].into_iter().enumerate().map(move |(i, (label, value))| {
+                Button::new((id, i))
+                    .label(label)
+                    .xsmall()
+                    .when(on == value, |b| b.primary())
+                    .when(on != value, |b| b.ghost())
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_pref(cx, |s| set(s, value))))
+            }))
+        };
+        let row = |title: &'static str, hint: SharedString| {
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(div().flex_1().flex().flex_col().child(div().text_sm().child(title)).child(div().text_xs().text_color(c(theme::FAINT)).child(hint)))
+        };
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .rounded_lg()
+            .border_1()
+            .border_color(c(theme::BORDER))
+            .bg(c(theme::PANEL))
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap_2()
+                    .child(div().text_sm().font_weight(FontWeight::BOLD).child("GitChrono"))
+                    .child(div().text_xs().text_color(c(theme::FAINT)).child("applies right away")),
+            )
+            .child(
+                row("Check for updates automatically", self.update_status().unwrap_or_else(|| "New versions come from GitHub releases and are checked before installing.".into()))
+                    .child(Button::new("prefs-check-now").label("Check now").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx))))
+                    .child(switch("prefs-updates", self.auto_update_enabled(), cx, |s, v| s.auto_update = Some(v))),
+            )
+            .child(
+                row(
+                    "Profile pictures",
+                    "From Gravatar, which receives a hash of each author's email; people without one get a pattern. GitHub no-reply addresses use GitHub.".into(),
+                )
+                .child(Button::new("prefs-gravatar-link").label("Gravatar ↗").xsmall().ghost().on_click(|_, _, cx| cx.open_url("https://gravatar.com")))
+                .child(switch("prefs-gravatar", self.session.gravatar, cx, |s, v| s.gravatar = v)),
+            )
     }
 }
 

@@ -24,6 +24,12 @@ pub struct Session {
     /// Home-screen groups the user collapsed: project folders, or "" for Recent.
     #[serde(default)]
     pub collapsed: Vec<PathBuf>,
+    /// Show authors' profile pictures (Gravatar). Opt-in: lookups send hashed emails.
+    #[serde(default)]
+    pub gravatar: bool,
+    /// Check GitHub for new releases; `None` means on.
+    #[serde(default)]
+    pub auto_update: Option<bool>,
 }
 
 impl Session {

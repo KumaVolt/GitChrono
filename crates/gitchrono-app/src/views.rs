@@ -788,14 +788,32 @@ impl Workspace {
                         .child(div().flex_1().min_w(px(4.)).h_px().bg(color.opacity(0.6)))
                     }),
             )
-            .child(
+            .child({
+                // With profile pictures on, regular commits show the author on the dot.
+                let node_x = graph_paint::node_x(layout.lane);
+                let picture = (!merge && f32::from(gutter) >= node_x + 10. && f32::from(gutter) >= graph_paint::MIN_FULL_GUTTER)
+                    .then(|| crate::avatars::for_email(&commit.author_email, cx))
+                    .flatten();
                 div()
+                    .relative()
                     .w(gutter)
                     .min_w(px(graph_paint::MIN_GUTTER))
                     .h_full()
                     .overflow_hidden()
-                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty() })),
-            )
+                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty() }))
+                    .when_some(picture, |d, path| {
+                        d.child(
+                            img(path)
+                                .absolute()
+                                .left(px(node_x - 10.))
+                                .top(px(graph_paint::ROW_HEIGHT / 2. - 10.))
+                                .size(px(20.))
+                                .rounded_full()
+                                .border_2()
+                                .border_color(color),
+                        )
+                    })
+            })
             .child(
                 div()
                     .flex_1()
@@ -886,7 +904,10 @@ impl Workspace {
                             .flex()
                             .gap_3()
                             .items_start()
-                            .child(avatar(&commit.author_name, &commit.author_email))
+                            .child(match crate::avatars::for_email(&commit.author_email, cx) {
+                                Some(path) => img(path).size(px(36.)).flex_none().rounded_full().into_any_element(),
+                                None => avatar(&commit.author_name, &commit.author_email).into_any_element(),
+                            })
                             .child(
                                 div()
                                     .flex_1()

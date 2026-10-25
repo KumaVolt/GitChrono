@@ -125,6 +125,8 @@ pub struct Workspace {
     pub refs_hover: (Option<usize>, Option<usize>),
     /// Graph column width set by dragging its edge; `None` sizes it to the lanes.
     pub graph_width: Option<f32>,
+    /// Re-render when a profile picture finishes downloading.
+    _avatars: Subscription,
     /// AI explanation of a commit: (commit id, text).
     pub explanation: Option<(String, SharedString)>,
     /// Folder view for file lists (staging and commit files) instead of full paths.
@@ -207,6 +209,7 @@ impl Workspace {
             file_multi: (false, Vec::new()),
             explanation: None,
             graph_width: None,
+            _avatars: cx.observe(&cx.global::<crate::avatars::AvatarStore>().0.clone(), |_, _, cx| cx.notify()),
             refs_hover: (None, None),
             file_tree: std::env::var_os("GITCHRONO_FOLDERS").is_some(),
             collapsed_dirs: Default::default(),
