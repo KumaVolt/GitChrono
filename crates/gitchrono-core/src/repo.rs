@@ -89,7 +89,8 @@ impl Repo {
         Ok(out)
     }
 
-    /// Walk every ref in `--topo-order` (children before parents), up to `limit` commits.
+    /// Walk every ref in `--date-order` (children before parents, otherwise newest
+    /// first, like GitKraken), up to `limit` commits.
     pub fn log(&self, refs: &Refs, limit: usize) -> Result<Vec<Commit>> {
         let repo = self.local();
 
@@ -128,7 +129,7 @@ impl Repo {
 
         let walk = topo::Builder::new(&repo.objects)
             .with_tips(tips)
-            .sorting(topo::Sorting::TopoOrder)
+            .sorting(topo::Sorting::DateOrder)
             .with_commit_graph(repo.commit_graph_if_enabled().ok().flatten())
             .build()?;
 

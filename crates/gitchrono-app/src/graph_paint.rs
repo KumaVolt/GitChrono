@@ -5,14 +5,14 @@ use gpui_kit::*;
 
 use crate::theme;
 
-pub const ROW_HEIGHT: f32 = 26.;
-/// Lanes are this wide while the graph fits in `MAX_GUTTER`, then narrow down
-/// to `MIN_LANE_WIDTH` so wide histories show more lanes before clipping.
-const LANE_WIDTH: f32 = 16.;
-const MIN_LANE_WIDTH: f32 = 10.;
-const MAX_GUTTER: f32 = 360.;
+pub const ROW_HEIGHT: f32 = 28.;
+const LANE_WIDTH: f32 = 20.;
+/// Wider graphs clip here rather than squeezing lanes together.
+const MAX_GUTTER: f32 = 340.;
 const PAD: f32 = 10.;
-const NODE_RADIUS: f32 = 5.5;
+const NODE_RADIUS: f32 = 6.;
+/// Corner radius of the elbow joining a node to another lane.
+const ELBOW: f32 = 8.;
 
 #[derive(Clone, Copy)]
 pub enum Node {
@@ -21,45 +21,67 @@ pub enum Node {
     Wip,
 }
 
-fn lane_x(bounds: &Bounds<Pixels>, lane: usize, lane_width: f32) -> Pixels {
-    bounds.left() + px(PAD + lane as f32 * lane_width + lane_width / 2.)
+fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
+    bounds.left() + px(PAD + lane as f32 * LANE_WIDTH + LANE_WIDTH / 2.)
 }
 
-/// Graph column width and the lane width to paint with.
-pub fn gutter(max_lane: usize) -> (Pixels, f32) {
-    let lanes = (max_lane + 1) as f32;
-    let lane_width = ((MAX_GUTTER - PAD * 2.) / lanes).clamp(MIN_LANE_WIDTH, LANE_WIDTH);
-    (px((PAD * 2. + lanes * lane_width).min(MAX_GUTTER)), lane_width)
+pub fn gutter_width(max_lane: usize) -> Pixels {
+    px((PAD * 2. + (max_lane + 1) as f32 * LANE_WIDTH).min(MAX_GUTTER))
 }
 
-pub fn row_canvas(row: Row, node: Node, lane_width: f32) -> impl IntoElement {
+pub fn row_canvas(row: Row, node: Node) -> impl IntoElement {
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
             window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                paint_row(bounds, &row, node, lane_width, window);
+                paint_row(bounds, &row, node, window);
             });
         },
     )
     .size_full()
 }
 
-fn segment(window: &mut Window, from: Point<Pixels>, to: Point<Pixels>, color: Hsla) {
+/// How a line between two lanes bends.
+#[derive(Clone, Copy, PartialEq)]
+enum Bend {
+    /// S-curve across the row (a lane shifting sideways).
+    Curve,
+    /// Horizontal out of the node, then a rounded turn down (merge or fork).
+    OutThenDown,
+    /// Down the lane, then a rounded turn into the node (a branch's parent).
+    DownThenIn,
+}
+
+fn segment(window: &mut Window, from: Point<Pixels>, to: Point<Pixels>, color: Hsla, bend: Bend) {
     let mut path = PathBuilder::stroke(px(2.));
     path.move_to(from);
-    if from.x == to.x {
-        path.line_to(to);
-    } else {
-        let mid = (from.y + to.y) / 2.;
-        path.cubic_bezier_to(to, point(from.x, mid), point(to.x, mid));
+    let r = px(ELBOW).min((to.x - from.x).abs()).min((to.y - from.y).abs());
+    let dir = if to.x > from.x { 1. } else { -1. };
+    match bend {
+        _ if from.x == to.x => path.line_to(to),
+        Bend::Curve => {
+            let mid = (from.y + to.y) / 2.;
+            path.cubic_bezier_to(to, point(from.x, mid), point(to.x, mid));
+        }
+        Bend::OutThenDown => {
+            let corner = point(to.x, from.y);
+            path.line_to(point(to.x - r * dir, from.y));
+            path.cubic_bezier_to(point(to.x, from.y + r), corner, corner);
+            path.line_to(to);
+        }
+        Bend::DownThenIn => {
+            let corner = point(from.x, to.y);
+            path.line_to(point(from.x, to.y - r));
+            path.cubic_bezier_to(point(from.x + r * dir, to.y), corner, corner);
+            path.line_to(to);
+        }
     }
     if let Ok(path) = path.build() {
         window.paint_path(path, color);
     }
 }
 
-fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, lane_width: f32, window: &mut Window) {
-    let lane_x = |bounds: &Bounds<Pixels>, lane: usize| lane_x(bounds, lane, lane_width);
+fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, window: &mut Window) {
     let top = bounds.top();
     let bottom = bounds.bottom();
     let mid = top + px(ROW_HEIGHT / 2.);
@@ -79,12 +101,12 @@ fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, lane_width: f32, win
 
     for e in &row.edges {
         let color = theme::lane(e.color);
-        let (from, to) = match (e.to_node, e.from_node) {
-            (true, _) => (point(lane_x(&bounds, e.from_lane), top), point(node_x, mid)),
-            (_, true) => (point(node_x, mid), point(lane_x(&bounds, e.to_lane), bottom)),
-            _ => (point(lane_x(&bounds, e.from_lane), top), point(lane_x(&bounds, e.to_lane), bottom)),
+        let (from, to, bend) = match (e.to_node, e.from_node) {
+            (true, _) => (point(lane_x(&bounds, e.from_lane), top), point(node_x, mid), Bend::DownThenIn),
+            (_, true) => (point(node_x, mid), point(lane_x(&bounds, e.to_lane), bottom), Bend::OutThenDown),
+            _ => (point(lane_x(&bounds, e.from_lane), top), point(lane_x(&bounds, e.to_lane), bottom), Bend::Curve),
         };
-        segment(window, from, to, color);
+        segment(window, from, to, color, bend);
     }
 
     let merge = matches!(node, Node::Commit { merge: true });
