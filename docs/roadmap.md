@@ -16,6 +16,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Stash push / pop / apply / drop | ✅ | |
 | Checkout, branch here, cherry-pick, revert, reset | ✅ | buttons in detail panel |
 | Merge/rebase/cherry-pick in progress banner (continue/abort) | ✅ | |
+| Multi-select files in staging (⌘/Shift-click; stage, unstage, discard) | ✅ | |
+| Folder view for file lists (staging + commit files) | ✅ | "Folders" toggle; stage a whole folder |
 | Hunk- and line-level staging / unstaging | ✅ | `partial_patch` + `git apply --cached --recount`, integration tested |
 | Discard changes (file / hunk / lines) | ✅ | with confirmation |
 | Right-click context menus (commit, branch, remote, tag, stash, file) | ✅ | not yet click-tested |
@@ -24,7 +26,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Command palette (⌘P / ⌘K) | ✅ | actions, branches, tabs, repos; fuzzy |
 | Search commits (message, author, sha) | ✅ | ⌘F, dims non-matches, Enter / ⇧Enter |
 | Tab per repo, recent repos, restore on launch | ✅ | `shell.rs`; ⌘T / ⌘W / ctrl-tab |
-| Project folders (parent folder → all repos inside) | ✅ | home tab, scan depth 4, "Open all" |
+| Project folders (parent folder → all repos inside) | ✅ | home tab, scan depth 4, "Open all", collapsible groups |
 | Embedded terminal (per repo, multiple tabs) | ✅ | `alacritty_terminal` PTY, ⌥T; no mouse selection/copy yet |
 | Version-aware tag sorting | ✅ | |
 | Lazy paging past 50k commits | ⬜ | |
@@ -49,6 +51,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Launchpad: PRs/issues across GitHub/GitLab/Bitbucket/Azure | 💎 |
 | Hosting integrations (OAuth, create PR, clone from) | ⬜ / 💎 |
 | Workspaces (multi-repo) | 🟡 project folders; multi-repo fetch/pull still todo |
+| Settings page: git identity, defaults, signing, SSH keys | ✅ global or per repo; generate/test Ed25519 keys |
 | Profiles | ⬜ |
 | AI commit messages / explain commit | 🟡 commit message, branch & stash names (BYOK) |
 | Release notes from tag range → gitchrono.com changelog | 💎 |

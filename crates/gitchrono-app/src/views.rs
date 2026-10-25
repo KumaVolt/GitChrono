@@ -11,6 +11,7 @@ use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use crate::file_tree::{self, TreeRow};
 use crate::graph_paint::{self, Node, ROW_HEIGHT};
 use crate::menus;
 use crate::theme::{self, c};
@@ -658,14 +659,22 @@ impl Workspace {
                     })
                     .context_menu(move |menu, _, _| menus::commit_menu(menu, &ws, &menu_id, current.as_deref())),
             )
-            .child(div().flex().child(section_header("Changed files", self.commit_files.len())))
-            .child(div().id("commit-files").flex_1().overflow_y_scroll().children(self.commit_files.iter().enumerate().map(|(i, f)| {
+            .child(div().flex().items_center().pr_2().child(section_header("Changed files", self.commit_files.len())).child(self.folders_toggle("folders-commit", cx)))
+            .child(div().id("commit-files").flex_1().overflow_y_scroll().children(self.file_rows("commit", &self.commit_files).into_iter().enumerate().map(|(row, tree_row)| {
+                let (i, name, depth) = match tree_row {
+                    TreeRow::File { index, name, depth } => (index, name, depth),
+                    TreeRow::Dir { path, name, depth, collapsed, .. } => {
+                        return self.folder_row(("cf", row).into(), "commit", &path, &name, depth, collapsed, cx).into_any_element();
+                    }
+                };
+                let f = &self.commit_files[i];
                 let path = f.path.clone();
                 let commit_id = id.clone();
                 let title = format!("{path} @ {short}");
                 div()
-                    .id(("cf", i))
-                    .px_3()
+                    .id(("cf", row))
+                    .pl(px(12. + depth as f32 * 14.))
+                    .pr_3()
                     .py_0p5()
                     .flex()
                     .gap_1()
@@ -673,7 +682,7 @@ impl Workspace {
                     .cursor_pointer()
                     .hover(|s| s.bg(c(theme::HOVER)))
                     .child(status_letter(f))
-                    .child(div().truncate().child(f.path.clone()))
+                    .child(div().truncate().child(name))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let source = DiffSource::Commit { id: commit_id.clone(), path: path.clone() };
                         this.show_diff(title.clone(), source, cx);
@@ -683,54 +692,134 @@ impl Workspace {
                         let path = f.path.clone();
                         move |menu, _, _| menus::commit_file_menu(menu, &ws, &path)
                     })
+                    .into_any_element()
             })))
+    }
+
+    /// The rows of a file list in path or folder view: `(file index, depth)`
+    /// for files, plus folder rows in folder view. `key` scopes collapsed folders.
+    fn file_rows(&self, key: &str, files: &[FileChange]) -> Vec<TreeRow> {
+        if !self.file_tree {
+            return files.iter().enumerate().map(|(index, f)| TreeRow::File { index, name: f.path.clone(), depth: 0 }).collect();
+        }
+        let prefix = format!("{key}:");
+        let collapsed = self.collapsed_dirs.iter().filter_map(|d| d.strip_prefix(&prefix)).map(str::to_string).collect();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        file_tree::build(&paths, &collapsed)
+    }
+
+    fn folder_row(&self, id: ElementId, key: &'static str, path: &str, name: &str, depth: usize, collapsed: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        let toggle = format!("{key}:{path}");
+        div()
+            .id(id)
+            .pl(px(12. + depth as f32 * 14.))
+            .pr_3()
+            .py_0p5()
+            .flex()
+            .items_center()
+            .gap_1()
+            .text_sm()
+            .text_color(c(theme::MUTED))
+            .cursor_pointer()
+            .hover(|s| s.bg(c(theme::HOVER)))
+            .child(div().w(px(16.)).flex_none().text_xs().child(if collapsed { "▸" } else { "▾" }))
+            .child(div().flex_1().min_w_0().truncate().child(format!("{name}/")))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if !this.collapsed_dirs.remove(&toggle) {
+                    this.collapsed_dirs.insert(toggle.clone());
+                }
+                cx.notify();
+            }))
+    }
+
+    fn folders_toggle(&self, id: &'static str, cx: &mut Context<Self>) -> Button {
+        Button::new(id).label(if self.file_tree { "✓ Folders" } else { "Folders" }).xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+            this.file_tree = !this.file_tree;
+            cx.notify();
+        }))
     }
 
     fn file_list(&self, id: &'static str, files: &[FileChange], staged: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let ws = cx.entity().downgrade();
-        div().id(id).flex_1().min_h(px(60.)).overflow_y_scroll().children(files.iter().enumerate().map(|(i, f)| {
+        let picked = self.picked_files(files, staged);
+        let rows = self.file_rows(id, files);
+        // Shift-click ranges follow what's on screen.
+        let visible: std::rc::Rc<[FileChange]> = file_tree::visible_files(&rows).into_iter().map(|i| files[i].clone()).collect();
+        div().id(id).flex_1().min_h(px(60.)).overflow_y_scroll().children(rows.into_iter().enumerate().map(|(row, tree_row)| {
+            let (index, name, depth) = match tree_row {
+                TreeRow::File { index, name, depth } => (index, name, depth),
+                TreeRow::Dir { path, name, depth, files: under, collapsed } => {
+                    let under: Vec<FileChange> = under.into_iter().map(|i| files[i].clone()).collect();
+                    return self
+                        .folder_row((id, row).into(), id, &path, &name, depth, collapsed, cx)
+                        .child(
+                            Button::new((if staged { "unstage-dir" } else { "stage-dir" }, row))
+                                .label(if staged { "Unstage" } else { "Stage" })
+                                .xsmall()
+                                .ghost()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.stage_files(&under, staged, cx);
+                                })),
+                        )
+                        .into_any_element();
+                }
+            };
+            let f = &files[index];
             let change = f.clone();
-            let for_diff = f.clone();
             let for_menu = f.clone();
             let ws = ws.clone();
+            let pos = visible.iter().position(|v| v.path == f.path).unwrap_or_default();
+            let visible = visible.clone();
             let open = self.diff.as_ref().is_some_and(|d| {
                 matches!(&d.source, DiffSource::Workdir { change, staged: s } if change.path == f.path && *s == staged)
             });
+            let in_multi = picked.len() > 1 && picked.iter().any(|p| p.path == f.path);
+            // Right-clicking one of several picked files acts on all of them.
+            let menu_files = if in_multi { picked.clone() } else { Vec::new() };
             div()
-                .id((id, i))
-                .px_3()
+                .id((id, row))
+                .pl(px(12. + depth as f32 * 14.))
+                .pr_3()
                 .py_0p5()
                 .flex()
                 .items_center()
                 .gap_1()
                 .text_sm()
                 .cursor_pointer()
-                .when(open, |d| d.bg(c(theme::SELECTED)))
-                .hover(|s| s.bg(c(theme::HOVER)))
+                .when(open || in_multi, |d| d.bg(c(theme::SELECTED)))
+                .when(!(open || in_multi), |d| d.hover(|s| s.bg(c(theme::HOVER))))
                 .child(status_letter(f))
-                .child(div().flex_1().min_w_0().truncate().child(f.path.clone()))
+                .child(div().flex_1().min_w_0().truncate().child(name))
                 .child(
-                    Button::new((if staged { "unstage" } else { "stage" }, i))
+                    Button::new((if staged { "unstage" } else { "stage" }, index))
                         .label(if staged { "Unstage" } else { "Stage" })
                         .xsmall()
                         .ghost()
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            let path = change.path.clone();
-                            if staged {
-                                this.run("Unstaging", Change::Status, cx, move |r| r.unstage(&[&path]));
-                            } else {
-                                this.run("Staging", Change::Status, cx, move |r| r.stage(&[&path]));
-                            }
+                            cx.stop_propagation();
+                            this.stage_files(std::slice::from_ref(&change), staged, cx);
                         })),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if for_diff.status == FileStatus::Conflicted {
-                        this.open_conflict(for_diff.path.clone(), cx);
+                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+                    if !this.click_file(&visible, pos, staged, ev.modifiers(), cx) {
+                        return;
+                    }
+                    let file = visible[pos].clone();
+                    if file.status == FileStatus::Conflicted {
+                        this.open_conflict(file.path, cx);
                     } else {
-                        this.show_workdir_diff(for_diff.clone(), staged, cx);
+                        this.show_workdir_diff(file, staged, cx);
                     }
                 }))
-                .context_menu(move |menu, _, _| menus::file_menu(menu, &ws, &for_menu, staged))
+                .context_menu(move |menu, _, _| {
+                    if menu_files.is_empty() {
+                        menus::file_menu(menu, &ws, &for_menu, staged)
+                    } else {
+                        menus::files_menu(menu, &ws, &menu_files, staged)
+                    }
+                })
+                .into_any_element()
         }))
     }
 
@@ -738,6 +827,17 @@ impl Workspace {
         let st = &self.status;
         let unstaged: Vec<FileChange> = st.conflicted.iter().chain(&st.unstaged).cloned().collect();
         let can_commit = !st.staged.is_empty() || self.amend;
+        let picked_unstaged = self.picked_files(&unstaged, false);
+        let picked_staged = self.picked_files(&st.staged, true);
+        let pick_button = |id: &'static str, picked: Vec<FileChange>, staged: bool, cx: &mut Context<Self>| {
+            (picked.len() > 1).then(|| {
+                Button::new(id)
+                    .label(format!("{} {}", if staged { "Unstage" } else { "Stage" }, picked.len()))
+                    .xsmall()
+                    .primary()
+                    .on_click(cx.listener(move |this, _, _, cx| this.stage_files(&picked, staged, cx)))
+            })
+        };
         div()
             .flex()
             .flex_col()
@@ -748,6 +848,8 @@ impl Workspace {
                     .items_center()
                     .pr_2()
                     .child(section_header("Unstaged files", unstaged.len()))
+                    .child(self.folders_toggle("folders-staging", cx))
+                    .children(pick_button("stage-picked", picked_unstaged, false, cx))
                     .child(Button::new("stage-all").label("Stage all").xsmall().ghost().disabled(unstaged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Staging", Change::Status, cx, |r| r.stage_all())),
                     )),
@@ -761,6 +863,7 @@ impl Workspace {
                     .border_t_1()
                     .border_color(c(theme::BORDER))
                     .child(section_header("Staged files", st.staged.len()))
+                    .children(pick_button("unstage-picked", picked_staged, true, cx))
                     .child(Button::new("unstage-all").label("Unstage all").xsmall().ghost().disabled(st.staged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Unstaging", Change::Status, cx, |r| r.unstage_all())),
                     )),

@@ -9,6 +9,7 @@ mod diff;
 mod model;
 mod rebase;
 mod repo;
+pub mod setup;
 mod undo;
 
 pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};

@@ -33,7 +33,7 @@ more can move in-process.
 Benchmark: `cargo run --release -p gitchrono-core --example snapshot -- <repo>`
 (git.git: 85,767 commits loaded in ~2.8s, graph layout ~80ms, Apple Silicon).
 
-**Debug hook.** `GITCHRONO_SELECT=<row>[:diff]` selects a row (and opens its first diff)
+**Debug hooks.** `GITCHRONO_SETTINGS=1` opens the settings page on launch; `GITCHRONO_FOLDERS=1` starts file lists in folder view. `GITCHRONO_SELECT=<row>[:diff]` selects a row (and opens its first diff)
 after the first load — used for headless screenshots.
 
 ## Releases

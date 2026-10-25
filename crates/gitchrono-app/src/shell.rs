@@ -14,7 +14,7 @@ use crate::projects::{self, Session};
 use crate::theme::{self, c};
 use crate::workspace::{Workspace, WorkspaceEvent};
 
-actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal, OpenPalette, FindCommits, Undo, Redo]);
+actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal, OpenPalette, FindCommits, Undo, Redo, OpenSettings]);
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -34,6 +34,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-z", Undo, None),
         KeyBinding::new("secondary-shift-z", Redo, None),
         KeyBinding::new("ctrl-y", Redo, None),
+        KeyBinding::new("secondary-,", OpenSettings, None),
     ]);
 }
 
@@ -46,6 +47,7 @@ pub struct Shell {
     tabs: Vec<Tab>,
     pub(crate) active: usize,
     pub(crate) palette: Option<crate::palette::Palette>,
+    pub(crate) settings: Option<crate::settings::Settings>,
     session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
@@ -65,6 +67,8 @@ impl Shell {
             if event.keystroke.key == "escape" {
                 if this.palette.is_some() {
                     this.close_palette(cx);
+                } else if this.settings.is_some() {
+                    this.close_settings(cx);
                 } else if let Some(ws) = this.active_workspace().cloned() {
                     ws.update(cx, |w, cx| w.close_search(cx));
                 }
@@ -72,7 +76,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         for path in session.tabs.iter().filter(|p| projects::is_repo(p)) {
             this.push_repo(path.clone(), window, cx);
@@ -88,6 +92,10 @@ impl Shell {
             this.tabs.push(Tab::Home);
         }
         this.activate(this.active, window, cx);
+        // `GITCHRONO_SETTINGS=1`: open the settings page on launch (screenshots).
+        if std::env::var_os("GITCHRONO_SETTINGS").is_some() {
+            this.open_settings(this.active_repo_path(), window, cx);
+        }
         this
     }
 
@@ -177,6 +185,7 @@ impl Shell {
     }
 
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings = None;
         self.active = index.min(self.tabs.len().saturating_sub(1));
         for (i, tab) in self.tabs.iter().enumerate() {
             if let Tab::Repo { view, .. } = tab {
@@ -219,6 +228,13 @@ impl Shell {
         }
     }
 
+    pub(crate) fn active_repo_path(&self) -> Option<PathBuf> {
+        match self.tabs.get(self.active) {
+            Some(Tab::Repo { path, .. }) => Some(path.clone()),
+            _ => None,
+        }
+    }
+
     /// (name, path) of every open repository tab.
     pub(crate) fn tab_entries(&self) -> Vec<(String, PathBuf)> {
         self.tabs
@@ -249,6 +265,7 @@ impl Shell {
 
     fn remove_folder(&mut self, folder: &PathBuf, cx: &mut Context<Self>) {
         self.session.folders.retain(|f| f != folder);
+        self.session.collapsed.retain(|f| f != folder);
         self.scans.remove(folder);
         self.save_session();
         cx.notify();
@@ -284,7 +301,7 @@ impl Shell {
             .border_color(c(theme::BORDER))
             .overflow_x_scroll()
             .children(self.tabs.iter().enumerate().map(|(i, tab)| {
-                let selected = i == self.active;
+                let selected = i == self.active && self.settings.is_none();
                 let label = match tab {
                     Tab::Home => "New tab".to_string(),
                     Tab::Repo { path, .. } => projects::display_name(path),
@@ -332,35 +349,104 @@ impl Shell {
                     .child("+")
                     .on_click(cx.listener(|this, _, window, cx| this.new_tab(window, cx))),
             )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("tab-settings")
+                    .h(px(30.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .rounded_t_md()
+                    .text_color(c(theme::MUTED))
+                    .cursor_pointer()
+                    .when(self.settings.is_some(), |d| d.bg(c(theme::BG)).text_color(c(theme::TEXT)))
+                    .hover(|d| d.text_color(c(theme::TEXT)))
+                    .child("⚙  Settings")
+                    .on_click(cx.listener(|this, _, window, cx| this.open_settings(this.active_repo_path(), window, cx))),
+            )
     }
 
-    fn repo_row(&self, id: SharedString, path: &PathBuf, cx: &mut Context<Self>) -> impl IntoElement {
+    /// `base` is the project folder the row sits in; its path is then shown
+    /// relative to that folder, and only when the repo is nested deeper.
+    fn repo_row(&self, id: SharedString, path: &PathBuf, base: Option<&PathBuf>, cx: &mut Context<Self>) -> impl IntoElement {
         let open = path.clone();
         let is_open = self.tabs.iter().any(|t| matches!(t, Tab::Repo { path: p, .. } if p == path));
+        let hint = match base {
+            Some(base) => path.parent().filter(|parent| parent != base).and_then(|parent| parent.strip_prefix(base).ok()).map(|rel| rel.display().to_string()),
+            None => Some(projects::short_path(path)),
+        };
         div()
             .id(id)
+            .h(px(32.))
+            .flex_none()
             .flex()
             .items_center()
             .gap_3()
             .px_3()
-            .py_1p5()
-            .rounded_md()
+            .border_t_1()
+            .border_color(c(theme::BORDER))
             .cursor_pointer()
             .hover(|d| d.bg(c(theme::HOVER)))
-            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(projects::display_name(path)))
-            .child(div().flex_1().text_xs().text_color(c(theme::FAINT)).overflow_hidden().whitespace_nowrap().child(projects::short_path(path)))
-            .when(is_open, |d| d.child(div().text_xs().text_color(c(theme::ACCENT)).child("open")))
+            .child(div().size(px(6.)).rounded_full().bg(c(if is_open { theme::ACCENT } else { theme::FAINT })))
+            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(projects::display_name(path)))
+            .child(div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().children(hint))
+            .when(is_open, |d| {
+                d.child(div().px_1p5().rounded_sm().bg(c(theme::SELECTED)).text_xs().text_color(c(theme::ACCENT)).child("open"))
+            })
             .on_click(cx.listener(move |this, _, window, cx| this.open_path(open.clone(), window, cx)))
+    }
+
+    fn toggle_group(&mut self, key: PathBuf, cx: &mut Context<Self>) {
+        if let Some(i) = self.session.collapsed.iter().position(|k| *k == key) {
+            self.session.collapsed.remove(i);
+        } else {
+            self.session.collapsed.push(key);
+        }
+        self.save_session();
+        cx.notify();
+    }
+
+    /// A collapsible card: clickable header (chevron, title, subtitle, actions),
+    /// then the rows unless collapsed.
+    fn group(&self, id: SharedString, key: PathBuf, collapsed: bool, title: String, subtitle: String, actions: Vec<AnyElement>, rows: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+        div()
+            .mt_5()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .rounded_lg()
+            .border_1()
+            .border_color(c(theme::BORDER))
+            .bg(c(theme::PANEL))
+            .overflow_hidden()
+            .child(
+                div()
+                    .id(id)
+                    .h(px(38.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(theme::HOVER)))
+                    .child(div().w(px(14.)).text_base().text_color(c(theme::MUTED)).child(if collapsed { "▸" } else { "▾" }))
+                    .child(div().text_sm().font_weight(FontWeight::BOLD).child(title))
+                    .child(div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().child(subtitle))
+                    .children(actions)
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(key.clone(), cx))),
+            )
+            .when(!collapsed, |d| d.children(rows))
     }
 
     fn render_home(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let query = self.filter.read(cx).value().to_lowercase();
-        let matches = |p: &PathBuf| query.is_empty() || p.to_string_lossy().to_lowercase().contains(&query);
+        let filtering = !query.is_empty();
+        let matches = |p: &PathBuf| !filtering || p.to_string_lossy().to_lowercase().contains(&query);
+        // While filtering every group is expanded so matches are never hidden.
+        let is_collapsed = |key: &PathBuf| !filtering && self.session.collapsed.contains(key);
         let recent: Vec<PathBuf> = self.session.recent.iter().filter(|p| projects::is_repo(p) && matches(p)).take(8).cloned().collect();
-
-        let section = |title: String| {
-            div().mt_6().mb_2().px_3().text_xs().font_weight(FontWeight::BOLD).text_color(c(theme::MUTED)).child(title)
-        };
 
         let mut body = div().w_full().max_w(px(820.)).flex().flex_col();
         body = body
@@ -385,59 +471,67 @@ impl Shell {
             );
 
         if !recent.is_empty() {
-            body = body.child(section("RECENT".into()));
-            for (i, path) in recent.iter().enumerate() {
-                body = body.child(self.repo_row(format!("recent-{i}").into(), path, cx));
-            }
+            let key = PathBuf::new();
+            let collapsed = is_collapsed(&key);
+            let rows = recent.iter().enumerate().map(|(i, path)| self.repo_row(format!("recent-{i}").into(), path, None, cx).into_any_element()).collect();
+            body = body.child(self.group("group-recent".into(), key, collapsed, "Recent".into(), format!("{}", recent.len()), Vec::new(), rows, cx));
         }
 
         for (fi, folder) in self.session.folders.iter().enumerate() {
             let repos = self.scans.get(folder);
             let shown: Vec<&PathBuf> = repos.map(|r| r.iter().filter(|p| matches(p)).collect()).unwrap_or_default();
-            let count = repos.map_or_else(|| "scanning…".to_string(), |r| format!("{} repositories", r.len()));
+            if filtering && repos.is_some() && shown.is_empty() {
+                continue;
+            }
+            let count = match repos {
+                None => "scanning…".to_string(),
+                Some(r) if filtering => format!("{} of {}", shown.len(), r.len()),
+                Some(r) => format!("{} {}", r.len(), if r.len() == 1 { "repository" } else { "repositories" }),
+            };
             let remove = folder.clone();
             let open_all: Vec<PathBuf> = shown.iter().map(|p| (*p).clone()).collect();
-            body = body.child(
-                div()
-                    .mt_6()
-                    .mb_2()
-                    .px_3()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(div().text_xs().font_weight(FontWeight::BOLD).text_color(c(theme::MUTED)).child(projects::display_name(folder).to_uppercase()))
-                    .child(div().flex_1().text_xs().text_color(c(theme::FAINT)).child(format!("{} · {count}", projects::short_path(folder))))
-                    .child(
-                        Button::new(("folder-open-all", fi))
-                            .label("Open all")
-                            .xsmall()
-                            .ghost()
-                            .disabled(open_all.is_empty() || open_all.len() > 20)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                for path in &open_all {
-                                    if !this.tabs.iter().any(|t| matches!(t, Tab::Repo { path: p, .. } if p == path)) {
-                                        this.push_repo(path.clone(), window, cx);
-                                        this.session.touch_recent(path);
-                                    }
-                                }
-                                let last = this.tabs.len() - 1;
-                                this.activate(last, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new(("folder-remove", fi))
-                            .label("Remove")
-                            .xsmall()
-                            .ghost()
-                            .on_click(cx.listener(move |this, _, _, cx| this.remove_folder(&remove, cx))),
-                    ),
-            );
-            for (ri, path) in shown.iter().enumerate() {
-                body = body.child(self.repo_row(format!("folder-{fi}-{ri}").into(), path, cx));
-            }
+            let actions = vec![
+                Button::new(("folder-open-all", fi))
+                    .label("Open all")
+                    .xsmall()
+                    .ghost()
+                    .disabled(open_all.is_empty() || open_all.len() > 20)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        for path in &open_all {
+                            if !this.tabs.iter().any(|t| matches!(t, Tab::Repo { path: p, .. } if p == path)) {
+                                this.push_repo(path.clone(), window, cx);
+                                this.session.touch_recent(path);
+                            }
+                        }
+                        let last = this.tabs.len() - 1;
+                        this.activate(last, window, cx);
+                    }))
+                    .into_any_element(),
+                Button::new(("folder-remove", fi))
+                    .label("Remove")
+                    .xsmall()
+                    .ghost()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.remove_folder(&remove, cx);
+                    }))
+                    .into_any_element(),
+            ];
+            let rows = shown.iter().enumerate().map(|(ri, path)| self.repo_row(format!("folder-{fi}-{ri}").into(), path, Some(folder), cx).into_any_element()).collect();
+            body = body.child(self.group(
+                format!("group-folder-{fi}").into(),
+                folder.clone(),
+                is_collapsed(folder),
+                projects::display_name(folder),
+                format!("{} · {count}", projects::short_path(folder)),
+                actions,
+                rows,
+                cx,
+            ));
         }
 
-        div().id("home").size_full().overflow_y_scroll().flex().justify_center().px_8().py_10().bg(c(theme::BG)).child(body)
+        div().id("home").size_full().overflow_y_scroll().flex().justify_center().items_start().px_8().py_10().bg(c(theme::BG)).child(body)
     }
 }
 
@@ -448,9 +542,13 @@ impl Render for Shell {
         if window.focused(cx).is_none() {
             self.focus.focus(window, cx);
         }
-        let content = match self.tabs.get(self.active) {
-            Some(Tab::Repo { view, .. }) => view.clone().into_any_element(),
-            _ => self.render_home(cx).into_any_element(),
+        let content = if let Some(settings) = self.render_settings(cx) {
+            settings.into_any_element()
+        } else {
+            match self.tabs.get(self.active) {
+                Some(Tab::Repo { view, .. }) => view.clone().into_any_element(),
+                _ => self.render_home(cx).into_any_element(),
+            }
         };
         div()
             .track_focus(&self.focus)
@@ -480,6 +578,7 @@ impl Render for Shell {
                 }
             }))
             .on_action(cx.listener(|this, _: &OpenPalette, window, cx| this.open_palette(window, cx)))
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(this.active_repo_path(), window, cx)))
             .on_action(cx.listener(|this, _: &FindCommits, window, cx| {
                 if let Some(ws) = this.active_workspace().cloned() {
                     ws.update(cx, |w, cx| w.open_search(window, cx));

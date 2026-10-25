@@ -203,6 +203,27 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
     }
 }
 
+/// Several files picked in one staging list.
+pub fn files_menu(menu: PopupMenu, ws: &Ws, files: &[FileChange], staged: bool) -> PopupMenu {
+    let n = files.len();
+    let (pick, discard) = (files.to_vec(), files.to_vec());
+    menu.item(item(&format!("{} {n} files", if staged { "Unstage" } else { "Stage" }), ws, move |this, _, cx| {
+        this.stage_files(&pick, staged, cx)
+    }))
+    .when(!staged && files.iter().all(|f| f.status != FileStatus::Conflicted), |menu| {
+        menu.item(item(&format!("Discard changes to {n} files…"), ws, move |this, window, cx| {
+            let files = discard.clone();
+            let untracked = files.iter().filter(|f| f.status == FileStatus::Untracked).count();
+            let note = if untracked > 0 { format!(" {untracked} untracked file(s) will be deleted.") } else { String::new() };
+            this.confirm("Discard changes", format!("Discard all changes to {n} files?{note} This cannot be undone."), "Discard", "Discarding", window, cx, move |r| {
+                files.iter().try_for_each(|f| r.discard(f))
+            });
+        }))
+    })
+    .separator()
+    .item(copy_item("Copy paths", ws, files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join("\n")))
+}
+
 pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) -> PopupMenu {
     let path = change.path.clone();
     let c1 = change.clone();

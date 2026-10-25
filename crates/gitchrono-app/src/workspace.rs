@@ -118,6 +118,13 @@ pub struct Workspace {
     pub pull_requests: Option<Vec<crate::github::PullRequest>>,
     /// Commit indices picked with ⌘/Shift-click (two or more means multi-select).
     pub multi: Vec<usize>,
+    /// Files picked with ⌘/Shift-click in the staging lists: which list
+    /// (staged or not) and the paths, the first being the Shift anchor.
+    pub file_multi: (bool, Vec<String>),
+    /// Folder view for file lists (staging and commit files) instead of full paths.
+    pub file_tree: bool,
+    /// Collapsed folders in folder view, as "<list>:<dir path>".
+    pub collapsed_dirs: std::collections::HashSet<String>,
     pub diff: Option<DiffView>,
     pub prompt: Option<Prompt>,
     pub busy: Option<SharedString>,
@@ -191,6 +198,9 @@ impl Workspace {
             commit_signature: None,
             pull_requests: None,
             multi: Vec::new(),
+            file_multi: (false, Vec::new()),
+            file_tree: std::env::var_os("GITCHRONO_FOLDERS").is_some(),
+            collapsed_dirs: Default::default(),
             diff: None,
             prompt: None,
             busy: None,
@@ -764,6 +774,50 @@ impl Workspace {
             crate::projects::save_ref_filter(repo.root(), &self.ref_filter);
         }
         self.reload(cx);
+    }
+
+    /// Staging list click: plain picks one file (and the caller shows its diff,
+    /// signalled by `true`), ⌘/Ctrl toggles, Shift selects a range.
+    pub fn click_file(&mut self, files: &[FileChange], index: usize, staged: bool, modifiers: Modifiers, cx: &mut Context<Self>) -> bool {
+        let path = files[index].path.clone();
+        let toggle = modifiers.platform || modifiers.control;
+        if !(toggle || modifiers.shift) {
+            self.file_multi = (staged, vec![path]);
+            return true;
+        }
+        if self.file_multi.0 != staged {
+            self.file_multi = (staged, Vec::new());
+        }
+        let picked = &mut self.file_multi.1;
+        picked.retain(|p| files.iter().any(|f| &f.path == p));
+        if modifiers.shift {
+            let anchor = picked.first().and_then(|a| files.iter().position(|f| &f.path == a)).unwrap_or(index);
+            let (lo, hi) = (anchor.min(index), anchor.max(index));
+            *picked = std::iter::once(anchor).chain((lo..=hi).filter(|&i| i != anchor)).map(|i| files[i].path.clone()).collect();
+        } else if let Some(pos) = picked.iter().position(|p| *p == path) {
+            picked.remove(pos);
+        } else {
+            picked.push(path);
+        }
+        cx.notify();
+        false
+    }
+
+    /// The picked files still present in that list, in list order.
+    pub fn picked_files(&self, files: &[FileChange], staged: bool) -> Vec<FileChange> {
+        if self.file_multi.0 != staged {
+            return Vec::new();
+        }
+        files.iter().filter(|f| self.file_multi.1.contains(&f.path)).cloned().collect()
+    }
+
+    pub fn stage_files(&mut self, files: &[FileChange], staged: bool, cx: &mut Context<Self>) {
+        let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+        self.file_multi.1.clear();
+        self.run(if staged { "Unstaging" } else { "Staging" }, Change::Status, cx, move |r| {
+            let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+            if staged { r.unstage(&paths) } else { r.stage(&paths) }
+        });
     }
 
     /// Row click: plain selects one, ⌘/Ctrl toggles, Shift extends a range.

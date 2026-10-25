@@ -145,6 +145,7 @@ impl Shell {
                 s.close_tab(active, w, cx)
             })
             .detail("⌘W"),
+            Item::new("Action", "Settings: git identity, SSH keys, signing…", |s, w, cx| s.open_settings(s.active_repo_path(), w, cx)).detail("⌘,"),
         ];
 
         if let Some(ws) = self.active_workspace() {

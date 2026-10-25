@@ -21,6 +21,9 @@ pub struct Session {
     pub recent: Vec<PathBuf>,
     #[serde(default)]
     pub folders: Vec<PathBuf>,
+    /// Home-screen groups the user collapsed: project folders, or "" for Recent.
+    #[serde(default)]
+    pub collapsed: Vec<PathBuf>,
 }
 
 impl Session {
