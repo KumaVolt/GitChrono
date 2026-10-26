@@ -877,6 +877,13 @@ impl Workspace {
         let wip = usize::from(self.has_wip());
         let toggle = modifiers.platform || modifiers.control;
         if row < wip || !(toggle || modifiers.shift) {
+            // Clicking the selected commit again closes its details.
+            if row >= wip && self.multi.is_empty() && self.selection == Selection::Commit(row - wip) {
+                self.selection = Selection::None;
+                self.diff = None;
+                cx.notify();
+                return;
+            }
             self.multi.clear();
             self.select_row(row, cx);
             return;

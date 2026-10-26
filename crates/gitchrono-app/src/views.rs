@@ -716,7 +716,13 @@ impl Workspace {
             .text_sm()
             .cursor_pointer()
             .hover(|s| s.bg(c(theme::HOVER)))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.click_row(row, ev.modifiers(), cx)));
+            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+                // The second click of a double-click (e.g. checking out a branch
+                // label) mustn't toggle the details closed again.
+                if ev.click_count() < 2 {
+                    this.click_row(row, ev.modifiers(), cx);
+                }
+            }));
 
         if wip && row == 0 {
             let selected = self.selection == Selection::Wip;
