@@ -175,6 +175,8 @@ pub struct Workspace {
     pub drop_menu: Option<crate::drag::DropMenu>,
     /// Branches hidden from / soloed in the graph (saved per repository).
     pub ref_filter: gitchrono_core::RefFilter,
+    /// Collapsed sidebar sections, saved per repository.
+    pub collapsed_sections: std::collections::BTreeSet<String>,
     pub conflict: Option<crate::conflict_ui::ConflictView>,
     /// Side-by-side instead of unified diffs.
     pub diff_split: bool,
@@ -253,6 +255,7 @@ impl Workspace {
             rebase_editor: None,
             drop_menu: None,
             ref_filter: Default::default(),
+            collapsed_sections: Default::default(),
             conflict: None,
             diff_split: std::env::var_os("GITCHRONO_SPLIT").is_some(),
             file_history: None,
@@ -274,6 +277,7 @@ impl Workspace {
             Ok(repo) => {
                 let repo = Arc::new(repo);
                 self.ref_filter = crate::projects::load_ref_filter(repo.root());
+                self.collapsed_sections = crate::projects::load_collapsed_sections(repo.root());
                 self._watcher = self.start_watcher(&repo, cx);
                 self.repo = Some(repo);
                 self.selection = Selection::None;
@@ -812,6 +816,16 @@ impl Workspace {
             .ok();
         })
         .detach();
+    }
+
+    pub fn toggle_section(&mut self, key: &str, cx: &mut Context<Self>) {
+        if !self.collapsed_sections.remove(key) {
+            self.collapsed_sections.insert(key.to_string());
+        }
+        if let Some(repo) = &self.repo {
+            crate::projects::save_collapsed_sections(repo.root(), &self.collapsed_sections);
+        }
+        cx.notify();
     }
 
     /// Staging list click: plain picks one file (and the caller shows its diff,

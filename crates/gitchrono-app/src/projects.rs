@@ -74,6 +74,9 @@ struct RepoPrefs {
     hidden: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(default)]
     solo: std::collections::BTreeMap<String, Vec<String>>,
+    /// Sidebar sections the user collapsed ("local", "remote", "tags", …).
+    #[serde(default)]
+    collapsed: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 fn prefs_path() -> Option<PathBuf> {
@@ -93,6 +96,31 @@ pub fn load_ref_filter(root: &Path) -> gitchrono_core::RefFilter {
     }
 }
 
+pub fn load_collapsed_sections(root: &Path) -> std::collections::BTreeSet<String> {
+    load_prefs().collapsed.remove(&*root.to_string_lossy()).unwrap_or_default().into_iter().collect()
+}
+
+pub fn save_collapsed_sections(root: &Path, sections: &std::collections::BTreeSet<String>) {
+    let mut prefs = load_prefs();
+    let key = root.to_string_lossy().into_owned();
+    if sections.is_empty() {
+        prefs.collapsed.remove(&key);
+    } else {
+        prefs.collapsed.insert(key, sections.iter().cloned().collect());
+    }
+    write_prefs(&prefs);
+}
+
+fn write_prefs(prefs: &RepoPrefs) {
+    let Some(path) = prefs_path() else { return };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
+    if let Ok(text) = serde_json::to_string_pretty(prefs) {
+        std::fs::write(path, text).ok();
+    }
+}
+
 pub fn save_ref_filter(root: &Path, filter: &gitchrono_core::RefFilter) {
     let mut prefs = load_prefs();
     let key = root.to_string_lossy().into_owned();
@@ -105,13 +133,7 @@ pub fn save_ref_filter(root: &Path, filter: &gitchrono_core::RefFilter) {
     };
     set(&mut prefs.hidden, &filter.hidden);
     set(&mut prefs.solo, &filter.solo);
-    let Some(path) = prefs_path() else { return };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).ok();
-    }
-    if let Ok(text) = serde_json::to_string_pretty(&prefs) {
-        std::fs::write(path, text).ok();
-    }
+    write_prefs(&prefs);
 }
 
 /// A repository root: has a `.git` directory, or a `.git` file (worktrees, submodules).

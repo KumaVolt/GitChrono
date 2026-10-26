@@ -171,6 +171,34 @@ fn section_header(title: &str, count: usize) -> Div {
 }
 
 impl Workspace {
+    /// A sidebar section heading that collapses the section. While the sidebar
+    /// filter has text every section shows, so matches are never hidden.
+    fn sidebar_section(&self, key: &'static str, icon: &'static str, title: &str, count: usize, filtering: bool, cx: &mut Context<Self>) -> (Stateful<Div>, bool) {
+        let open = filtering || !self.collapsed_sections.contains(key);
+        let header = div()
+            .id(SharedString::from(format!("section-{key}")))
+            .flex_1()
+            .h(px(30.))
+            .mt_1()
+            .px_2()
+            .flex()
+            .items_center()
+            .gap_1p5()
+            .border_t_1()
+            .border_color(c(theme::BORDER))
+            .text_xs()
+            .font_weight(FontWeight::BOLD)
+            .text_color(c(theme::MUTED))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(theme::HOVER)).text_color(c(theme::TEXT)))
+            .child(div().w(px(12.)).flex_none().text_sm().text_color(c(theme::FAINT)).child(if open { "▾" } else { "▸" }))
+            .child(div().w(px(14.)).flex_none().text_color(c(theme::FAINT)).child(icon))
+            .child(div().flex_1().child(title.to_uppercase()))
+            .child(div().text_color(c(theme::ACCENT)).child(count.to_string()))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_section(key, cx)));
+        (header, open)
+    }
+
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let st = &self.status;
         let busy = self.busy.is_some();
@@ -375,10 +403,12 @@ impl Workspace {
 
         let filter = self.ref_filter(cx);
         let keep = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
+        let filtering = !filter.is_empty();
         col = col.child(div().p_2().child(Input::new(&self.sidebar_filter).small().cleanable(true)));
 
-        col = col.child(section_header("Local", refs.local.len()));
-        for b in refs.local.iter().filter(|b| keep(&b.name)) {
+        let (header, open) = self.sidebar_section("local", "▭", "Local", refs.local.len(), filtering, cx);
+        col = col.child(header);
+        for b in refs.local.iter().filter(|b| open && keep(&b.name)) {
             let extra = match (b.ahead, b.behind) {
                 (0, 0) => String::new(),
                 (a, 0) => format!("↑{a}"),
@@ -387,19 +417,22 @@ impl Workspace {
             };
             col = col.child(item(format!("l-{}", b.name).into(), b.name.clone(), extra, b.target.clone(), b.current, RefKind::Local, 0, cx));
         }
-        col = col.child(section_header("Remote", refs.remote.len()));
-        for b in refs.remote.iter().filter(|b| keep(&b.name)) {
+        let (header, open) = self.sidebar_section("remote", "☁", "Remote", refs.remote.len(), filtering, cx);
+        col = col.child(header);
+        for b in refs.remote.iter().filter(|b| open && keep(&b.name)) {
             col = col.child(item(format!("r-{}", b.name).into(), b.name.clone(), String::new(), b.target.clone(), false, RefKind::Remote, 0, cx));
         }
-        col = col.child(section_header("Tags", refs.tags.len()));
-        for t in refs.tags.iter().filter(|t| keep(&t.name)).take(300) {
+        let (header, open) = self.sidebar_section("tags", "◆", "Tags", refs.tags.len(), filtering, cx);
+        col = col.child(header);
+        for t in refs.tags.iter().filter(|t| open && keep(&t.name)).take(300) {
             col = col.child(item(format!("t-{}", t.name).into(), t.name.clone(), String::new(), t.target.clone(), false, RefKind::Tag, 0, cx));
         }
         let worktrees = &self.snap.worktrees;
         if worktrees.len() > 1 {
             let root = self.repo.as_ref().map(|r| r.root().to_path_buf()).unwrap_or_default();
-            col = col.child(section_header("Worktrees", worktrees.len()));
-            for (i, wt) in worktrees.iter().enumerate() {
+            let (header, open) = self.sidebar_section("worktrees", "⑂", "Worktrees", worktrees.len(), filtering, cx);
+            col = col.child(header);
+            for (i, wt) in worktrees.iter().enumerate().filter(|_| open) {
                 let name = crate::projects::display_name(&wt.path);
                 if !keep(&name) && !wt.branch.as_deref().is_some_and(|b| keep(b)) {
                     continue;
@@ -432,8 +465,9 @@ impl Workspace {
         }
         if !self.snap.submodules.is_empty() {
             let root = self.repo.as_ref().map(|r| r.root().to_path_buf()).unwrap_or_default();
-            col = col.child(section_header("Submodules", self.snap.submodules.len()));
-            for (i, sub) in self.snap.submodules.iter().enumerate().filter(|(_, s)| keep(&s.path)) {
+            let (header, open) = self.sidebar_section("submodules", "▣", "Submodules", self.snap.submodules.len(), filtering, cx);
+            col = col.child(header);
+            for (i, sub) in self.snap.submodules.iter().enumerate().filter(|(_, s)| open && keep(&s.path)) {
                 let state = match sub.state {
                     '-' => "not initialized",
                     '+' => "changed",
@@ -474,18 +508,18 @@ impl Workspace {
             }
         }
         if let Some(prs) = &self.pull_requests {
+            let (header, open) = self.sidebar_section("pull-requests", "⇄", "Pull requests", prs.len(), filtering, cx);
             col = col.child(
                 div()
                     .flex()
                     .items_center()
-                    .pr_2()
-                    .child(section_header("Pull requests", prs.len()))
+                    .child(header.pr_1())
                     .child(Button::new("pr-new").label("New").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                         let Some(root) = this.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
                         this.run_inner("Opening pull request form".into(), Change::Refs, false, cx, move |_| crate::github::create_in_browser(&root), |_, _| {});
                     }))),
             );
-            for (i, pr) in prs.iter().enumerate().filter(|(_, p)| keep(&p.title) || keep(&p.head_ref_name)) {
+            for (i, pr) in prs.iter().enumerate().filter(|(_, p)| open && (keep(&p.title) || keep(&p.head_ref_name))) {
                 let url = pr.url.clone();
                 let number = pr.number;
                 let ws = cx.entity().downgrade();
@@ -513,8 +547,9 @@ impl Workspace {
                 );
             }
         }
-        col = col.child(section_header("Stashes", refs.stashes.len()));
-        for s in refs.stashes.iter().filter(|s| keep(&s.message)) {
+        let (header, open) = self.sidebar_section("stashes", "≡", "Stashes", refs.stashes.len(), filtering, cx);
+        col = col.child(header);
+        for s in refs.stashes.iter().filter(|s| open && keep(&s.message)) {
             col = col.child(item(format!("s-{}", s.index).into(), s.message.clone(), String::new(), s.target.clone(), false, RefKind::Stash, s.index, cx));
         }
         col
