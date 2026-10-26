@@ -3,7 +3,7 @@
 //! SSH config and signing behave exactly like the terminal.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use anyhow::{Result, bail};
 
@@ -20,7 +20,7 @@ pub struct GitError {
 }
 
 pub fn git(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let output = crate::gitbin::git_command()
         .args(args)
         .current_dir(cwd)
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -252,7 +252,7 @@ impl Repo {
     pub fn workdir_file_diff(&self, change: &FileChange, staged: bool) -> Result<FileDiff> {
         let out = if change.status == FileStatus::Untracked {
             // `--no-index` exits 1 when files differ, which is the normal case here.
-            let output = Command::new("git")
+            let output = crate::gitbin::git_command()
                 .args(["diff", "--no-color", "--no-index", "--", "/dev/null", &change.path])
                 .current_dir(self.root())
                 .output()?;
@@ -402,7 +402,7 @@ impl Repo {
             args.push("-R");
         }
         args.push("-");
-        let mut child = Command::new("git")
+        let mut child = crate::gitbin::git_command()
             .args(&args)
             .current_dir(self.root())
             .stdin(Stdio::piped())
@@ -570,7 +570,7 @@ impl Repo {
             Operation::Revert => "revert",
         };
         let flag = if abort { "--abort" } else { "--continue" };
-        let output = Command::new("git")
+        let output = crate::gitbin::git_command()
             .args([cmd, flag])
             .current_dir(self.root())
             .env("GIT_EDITOR", "true")

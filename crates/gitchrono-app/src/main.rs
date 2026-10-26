@@ -5,6 +5,7 @@ mod diff_view;
 mod drag;
 mod file_tree;
 mod footer;
+mod git_help;
 mod fuzzy;
 mod github;
 mod graph_paint;

@@ -1,6 +1,6 @@
 //! Interactive rebase driven by a prepared todo list (no editor round-trips).
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use anyhow::{Result, bail};
 
@@ -85,7 +85,7 @@ impl Repo {
         }
         let todo_path = dir.join("todo");
         std::fs::write(&todo_path, todo)?;
-        let output = Command::new("git")
+        let output = crate::gitbin::git_command()
             .args(["rebase", "-i", "--autostash", base])
             .current_dir(self.root())
             // git runs `$GIT_SEQUENCE_EDITOR <todo file>`: overwrite it with ours.

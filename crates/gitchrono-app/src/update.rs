@@ -165,8 +165,15 @@ pub fn install_at(download: &Path, exe: &Path) -> Result<Installed> {
 
     // Windows' tar reads zip files too.
     run(Command::new("tar").arg("-xf").arg(download).arg("-C").arg(&work))?;
+    install_files(&work, &exe)?;
+    Ok(Installed(exe))
+}
+
+/// Puts the unpacked executable (and the bundled MinGit, on Windows) in
+/// place of the installed ones.
+fn install_files(unpacked: &Path, exe: &Path) -> Result<()> {
     let name = if cfg!(windows) { "gitchrono.exe" } else { "gitchrono" };
-    let new = find_file(&work, name).ok_or_else(|| anyhow!("{name} not found in the download"))?;
+    let new = find_file(unpacked, name).ok_or_else(|| anyhow!("{name} not found in the download"))?;
     let staged = exe.with_extension("new");
     std::fs::copy(&new, &staged)?;
     #[cfg(unix)]
@@ -179,10 +186,39 @@ pub fn install_at(download: &Path, exe: &Path) -> Result<Installed> {
         // is deleted on the next start (see `cleanup`).
         let old = exe.with_extension("old.exe");
         let _ = std::fs::remove_file(&old);
-        std::fs::rename(&exe, &old)?;
+        std::fs::rename(exe, &old)?;
     }
-    std::fs::rename(&staged, &exe)?;
-    Ok(Installed(exe))
+    std::fs::rename(&staged, exe)?;
+
+    // The bundled git comes along with the app. If the old copy is in use it
+    // stays until the next update; the new app still runs with it.
+    let bundled = new.parent().map(|d| d.join("mingit")).filter(|d| d.is_dir());
+    if let (Some(from), Some(dir)) = (bundled, exe.parent()) {
+        let (target, staged, old) = (dir.join("mingit"), dir.join("mingit.new"), dir.join("mingit.old"));
+        let _ = std::fs::remove_dir_all(&staged);
+        copy_dir(&from, &staged)?;
+        let _ = std::fs::remove_dir_all(&old);
+        if target.exists() && std::fs::rename(&target, &old).is_err() {
+            let _ = std::fs::remove_dir_all(&staged);
+            return Ok(());
+        }
+        std::fs::rename(&staged, &target)?;
+    }
+    Ok(())
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), &dest)?;
+        }
+    }
+    Ok(())
 }
 
 fn swap_dir(target: &Path, staged: &Path) -> Result<()> {
@@ -225,6 +261,9 @@ pub fn relaunch(installed: &Installed) -> Result<()> {
 pub fn cleanup() {
     if let Ok(exe) = std::env::current_exe() {
         let _ = std::fs::remove_file(exe.with_extension("old.exe"));
+        if let Some(dir) = exe.parent() {
+            let _ = std::fs::remove_dir_all(dir.join("mingit.old"));
+        }
     }
 }
 
@@ -276,6 +315,25 @@ mod tests {
         let plist = std::fs::read_to_string(root.join("GitChrono.app/Contents/Info.plist")).unwrap();
         assert!(plist.contains(&format!("<string>{}</string>", release.version)), "the new bundle is in place");
         assert!(!root.join("GitChrono.app.old").exists() && !root.join("GitChrono.app.new").exists(), "no leftovers");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replaces_the_app_and_its_bundled_git() {
+        let root = std::env::temp_dir().join(format!("gitchrono-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let name = if cfg!(windows) { "gitchrono.exe" } else { "gitchrono" };
+        let (unpacked, installed) = (root.join("unpacked/GitChrono-0.4.0"), root.join("app"));
+        for (dir, version) in [(&unpacked, "new"), (&installed, "old")] {
+            std::fs::create_dir_all(dir.join("mingit/cmd")).unwrap();
+            std::fs::write(dir.join(name), version).unwrap();
+            std::fs::write(dir.join("mingit/cmd/git"), version).unwrap();
+        }
+        let exe = installed.join(name);
+        install_files(&root.join("unpacked"), &exe).unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(installed.join("mingit/cmd/git")).unwrap(), "new");
+        assert!(!installed.join("mingit.new").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 

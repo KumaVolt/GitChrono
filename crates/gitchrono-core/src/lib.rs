@@ -9,6 +9,7 @@ mod diff;
 mod model;
 mod rebase;
 mod repo;
+pub mod gitbin;
 pub mod setup;
 pub mod summary;
 mod undo;

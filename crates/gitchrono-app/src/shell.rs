@@ -10,6 +10,7 @@ use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use gitchrono_core::gitbin::{self, GitCheck};
 use gitchrono_core::summary::{self, RepoSummary};
 
 use crate::projects::{self, Session};
@@ -59,6 +60,10 @@ pub struct Shell {
     pub(crate) settings: Option<crate::settings::Settings>,
     pub(crate) update: crate::footer::UpdateState,
     pub(crate) about: Option<crate::footer::About>,
+    /// Whether a usable git was found; without one the help page replaces the tabs.
+    pub(crate) git: GitCheck,
+    /// The repository to open once git is available (from the command line).
+    pending_open: Option<PathBuf>,
     pub(crate) session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
@@ -92,28 +97,49 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, session: session.clone(), scans: HashMap::new(), summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
-        for path in session.tabs.iter().filter(|p| projects::is_repo(p)) {
-            this.push_repo(path.clone(), window, cx);
-        }
-        for folder in session.folders.clone() {
-            this.scan(folder, cx);
-        }
-        this.active = session.active.min(this.tabs.len().saturating_sub(1));
-        if let Some(path) = open {
-            this.open_path(path, window, cx);
-        }
-        if this.tabs.is_empty() {
+        if matches!(this.git, GitCheck::Ok { .. }) {
+            this.restore(open, window, cx);
+        } else {
+            this.pending_open = open;
             this.tabs.push(Tab::Home);
+            this.activate(0, window, cx);
         }
-        this.activate(this.active, window, cx);
         this.schedule_update_checks(cx);
         // `GITCHRONO_SETTINGS=1`: open the settings page on launch (screenshots).
         if std::env::var_os("GITCHRONO_SETTINGS").is_some() {
             this.open_settings(this.active_repo_path(), window, cx);
         }
         this
+    }
+
+    /// Reopens the last session's tabs and folders (once git is available).
+    fn restore(&mut self, open: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        self.tabs.clear();
+        for path in self.session.tabs.clone().iter().filter(|p| projects::is_repo(p)) {
+            self.push_repo(path.clone(), window, cx);
+        }
+        for folder in self.session.folders.clone() {
+            self.scan(folder, cx);
+        }
+        self.active = self.session.active.min(self.tabs.len().saturating_sub(1));
+        if let Some(path) = open {
+            self.open_path(path, window, cx);
+        }
+        if self.tabs.is_empty() {
+            self.tabs.push(Tab::Home);
+        }
+        self.activate(self.active, window, cx);
+    }
+
+    pub(crate) fn recheck_git(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.git = gitbin::check();
+        if matches!(self.git, GitCheck::Ok { .. }) {
+            let open = self.pending_open.take();
+            self.restore(open, window, cx);
+        }
+        cx.notify();
     }
 
     fn push_repo(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> usize {
@@ -305,6 +331,10 @@ impl Shell {
     }
 
     fn save_session(&mut self) {
+        // Without git the tabs weren't restored; saving now would forget them.
+        if !matches!(self.git, GitCheck::Ok { .. }) {
+            return;
+        }
         self.session.tabs = self
             .tabs
             .iter()
@@ -690,7 +720,9 @@ impl Render for Shell {
         if window.focused(cx).is_none() {
             self.focus.focus(window, cx);
         }
-        let content = if let Some(settings) = self.render_settings(cx) {
+        let content = if !matches!(self.git, GitCheck::Ok { .. }) {
+            crate::git_help::render(&self.git, cx).into_any_element()
+        } else if let Some(settings) = self.render_settings(cx) {
             settings.into_any_element()
         } else {
             match self.tabs.get(self.active) {

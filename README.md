@@ -12,7 +12,7 @@ A fast, native Git client — 100% Rust, GPU-rendered with
 cargo run -p gitchrono-app -- /path/to/repo     # or open one from the welcome screen
 ```
 
-Requires a `git` binary (2.40+) on `PATH`.
+Requires `git` 2.40+ on `PATH` (Windows builds include MinGit as a fallback; without git the app shows how to install it).
 
 ## Architecture
 

@@ -42,6 +42,7 @@ pub struct About {
 /// Projects GitChrono is built on, with their licences.
 const CREDITS: &[(&str, &str, &str)] = &[
     ("Git", "used through the git installed on your computer", "https://git-scm.com"),
+    ("Git for Windows", "MinGit, included in Windows builds for computers without Git (GPLv2)", "https://gitforwindows.org"),
     ("GPUI", "the UI framework behind the Zed editor (Apache-2.0)", "https://www.gpui.rs"),
     ("gpui-component", "UI components by Longbridge (Apache-2.0)", "https://github.com/longbridge/gpui-component"),
     ("gitoxide", "reads your history quickly (MIT / Apache-2.0)", "https://github.com/GitoxideLabs/gitoxide"),
@@ -326,6 +327,15 @@ impl Shell {
                                 .child(Button::new("about-check").label("Check for updates").xsmall().ghost().disabled(matches!(self.update, UpdateState::Checking | UpdateState::Downloading(..))).on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))),
                         )
                         .children(self.update_status().map(|s| div().text_xs().text_color(c(theme::MUTED)).child(s)))
+                        .children(match &self.git {
+                            gitchrono_core::gitbin::GitCheck::Ok { path, version, bundled } => Some(
+                                div()
+                                    .text_xs()
+                                    .text_color(c(theme::FAINT))
+                                    .child(format!("Using {version}{} · {}", if *bundled { " (included)" } else { "" }, path.display())),
+                            ),
+                            _ => None,
+                        })
                         .child(heading("CONTRIBUTORS"))
                         .child(contributors)
                         .child(heading("BUILT WITH"))

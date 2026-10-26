@@ -85,6 +85,14 @@ jobs:
           New-Item -ItemType Directory -Force $stage | Out-Null
           Copy-Item target/${{ matrix.target }}/release/gitchrono.exe $stage/
           Copy-Item README.md $stage/
+          # MinGit: GitChrono uses it when Git isn't installed. Pinned and
+          # checksum-verified; bump both together (GPLv2, LICENSE.txt inside).
+          $mingit = "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/MinGit-2.56.0.4-64-bit.zip"
+          $sha = "e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877"
+          Invoke-WebRequest $mingit -OutFile mingit.zip
+          if ((Get-FileHash mingit.zip -Algorithm SHA256).Hash.ToLower() -ne $sha) { throw "MinGit checksum mismatch" }
+          Expand-Archive mingit.zip -DestinationPath "$stage/mingit"
+          & "$stage/mingit/cmd/git.exe" --version
           Compress-Archive -Path $stage -DestinationPath "$stage.zip"
           Remove-Item -Recurse $stage
 
