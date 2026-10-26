@@ -10,6 +10,8 @@ use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use gitchrono_core::summary::{self, RepoSummary};
+
 use crate::projects::{self, Session};
 use crate::theme::{self, c};
 use crate::workspace::{Workspace, WorkspaceEvent};
@@ -60,6 +62,8 @@ pub struct Shell {
     pub(crate) session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
+    /// Branch and status of each repository listed on the new-tab page.
+    summaries: HashMap<PathBuf, Result<RepoSummary, SharedString>>,
     filter: Entity<InputState>,
     _filter_sub: Subscription,
     /// Keeps key bindings working when no input has focus.
@@ -88,7 +92,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, session: session.clone(), scans: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, session: session.clone(), scans: HashMap::new(), summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         for path in session.tabs.iter().filter(|p| projects::is_repo(p)) {
             this.push_repo(path.clone(), window, cx);
@@ -170,6 +174,7 @@ impl Shell {
             let repos = task.await;
             this.update(cx, |this, cx| {
                 this.scans.insert(folder, repos);
+                this.refresh_summaries(cx);
                 cx.notify();
             })
             .ok();
@@ -211,6 +216,9 @@ impl Shell {
         };
         window.set_window_title(&title);
         self.save_session();
+        if matches!(self.tabs.get(self.active), Some(Tab::Home)) {
+            self.refresh_summaries(cx);
+        }
         cx.notify();
     }
 
@@ -394,6 +402,104 @@ impl Shell {
 
     /// `base` is the project folder the row sits in; its path is then shown
     /// relative to that folder, and only when the repo is nested deeper.
+    /// Reloads branch and status for every repository the new-tab page lists.
+    /// Rows keep their previous values until the new ones arrive.
+    fn refresh_summaries(&mut self, cx: &mut Context<Self>) {
+        let mut paths: Vec<PathBuf> = self.session.recent.iter().filter(|p| projects::is_repo(p)).cloned().collect();
+        for repos in self.scans.values() {
+            paths.extend(repos.iter().cloned());
+        }
+        paths.sort();
+        paths.dedup();
+        for path in paths {
+            let dir = path.clone();
+            let task = cx.background_spawn(async move { summary::repo_summary(&dir).map_err(|e| SharedString::from(format!("{e:#}"))) });
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                this.update(cx, |this, cx| {
+                    this.summaries.insert(path, result);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
+    /// Branch, ahead/behind and change counts, as small chips.
+    fn summary_chips(&self, path: &PathBuf) -> Vec<AnyElement> {
+        let chip = |text: String, color: u32| {
+            div()
+                .flex_none()
+                .px_1p5()
+                .h(px(20.))
+                .flex()
+                .items_center()
+                .gap_1()
+                .rounded_sm()
+                .bg(c(theme::PANEL_ALT))
+                .text_xs()
+                .text_color(c(color))
+                .child(text)
+                .into_any_element()
+        };
+        match self.summaries.get(path) {
+            None => Vec::new(),
+            Some(Err(e)) => vec![div()
+                .flex_none()
+                .text_xs()
+                .text_color(c(theme::DEL))
+                .truncate()
+                .max_w(px(260.))
+                .child(format!("⚠ {}", e.lines().last().unwrap_or("can't read this repository")))
+                .into_any_element()],
+            Some(Ok(s)) => {
+                let mut out = Vec::new();
+                let branch = match (&s.branch, &s.detached_at) {
+                    (Some(b), _) => format!("⎇ {b}"),
+                    (None, Some(at)) => format!("⎇ detached at {at}"),
+                    (None, None) => "⎇ no commits yet".into(),
+                };
+                out.push(chip(branch, theme::TEXT));
+                if let Some((ahead, behind)) = s.ahead_behind {
+                    if ahead > 0 {
+                        out.push(chip(format!("↑{ahead}"), theme::ADD));
+                    }
+                    if behind > 0 {
+                        out.push(chip(format!("↓{behind}"), theme::WARN));
+                    }
+                }
+                let changes: Vec<(String, u32)> = [
+                    (s.conflicted, "⚠", theme::DEL),
+                    (s.modified, "✎", theme::WARN),
+                    (s.added, "+", theme::ADD),
+                    (s.deleted, "−", theme::DEL),
+                ]
+                .into_iter()
+                .filter(|(n, ..)| *n > 0)
+                .map(|(n, sign, color)| (format!("{sign}{n}"), color))
+                .collect();
+                if !changes.is_empty() {
+                    out.push(
+                        div()
+                            .flex_none()
+                            .px_1p5()
+                            .h(px(20.))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .rounded_sm()
+                            .bg(c(theme::PANEL_ALT))
+                            .text_xs()
+                            .children(changes.into_iter().map(|(text, color)| div().text_color(c(color)).child(text)))
+                            .into_any_element(),
+                    );
+                }
+                out
+            }
+        }
+    }
+
     fn repo_row(&self, id: SharedString, path: &PathBuf, base: Option<&PathBuf>, cx: &mut Context<Self>) -> impl IntoElement {
         let open = path.clone();
         let is_open = self.tabs.iter().any(|t| matches!(t, Tab::Repo { path: p, .. } if p == path));
@@ -414,8 +520,18 @@ impl Shell {
             .cursor_pointer()
             .hover(|d| d.bg(c(theme::HOVER)))
             .child(div().size(px(6.)).rounded_full().bg(c(if is_open { theme::ACCENT } else { theme::FAINT })))
-            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(projects::display_name(path)))
-            .child(div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().children(hint))
+            .child(div().w(px(170.)).flex_none().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(projects::display_name(path)))
+            .child(
+                div()
+                    .w(px(120.))
+                    .flex_none()
+                    .text_xs()
+                    .text_color(c(theme::MUTED))
+                    .truncate()
+                    .children(self.summaries.get(path).and_then(|s| s.as_ref().ok()).and_then(|s| s.owner.clone())),
+            )
+            .children(self.summary_chips(path))
+            .child(div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().children(hint))
             .when(is_open, |d| {
                 d.child(div().px_1p5().rounded_sm().bg(c(theme::SELECTED)).text_xs().text_color(c(theme::ACCENT)).child("open"))
             })

@@ -10,6 +10,7 @@ mod model;
 mod rebase;
 mod repo;
 pub mod setup;
+pub mod summary;
 mod undo;
 
 pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};

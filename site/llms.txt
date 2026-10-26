@@ -1,0 +1,29 @@
+# GitChrono
+
+> GitChrono is a free, open-source (Apache-2.0) Git client for macOS, Windows and Linux, written in Rust and GPU-rendered with gpui. It has a colorful commit graph, line-by-line staging, instant diffs and optional AI commit messages, and opens huge repositories in seconds. It is in alpha.
+
+Key facts:
+
+- Platforms: macOS 11+ (one universal build for Apple Silicon and Intel, `.dmg`), Windows 10/11 64-bit (`.zip`), Linux x86_64 and ARM64 (`.tar.gz`, X11 or Wayland, needs Vulkan drivers).
+- Requires `git` 2.40 or newer on `PATH`. Reads history, refs and trees in-process via gitoxide; everything that changes the repository (commit, push, rebase, stash, …) runs through the user's own `git`, so hooks, SSH keys, credential helpers and signing behave exactly like the terminal.
+- Performance: the 85,767 commits of git.git load in about 2.8 s and the full graph lays out in about 80 ms (Apple Silicon); under 1% CPU in the background.
+- Features: commit graph with branches, tags and stashes; staging of single lines, blocks or many files; checkout, branch, tag, merge, rebase (reorder, squash, reword), cherry-pick, revert and reset from a right-click menu; side-by-side conflict resolution; file history and blame; undo (⌘Z) for commits, resets, rebases, checkouts, branches and tags; a tab per repository and project folders; built-in terminal; command palette (⌘P) and history search (⌘F); settings for git identity, signing and SSH keys; self-updating with checksum verification.
+- AI (optional): commit messages, branch names and "explain commit", using the user's own OpenAI, Anthropic, Mistral, Gemini or local (Ollama) model. Only the changes involved are sent, with secrets removed, and only when the user clicks an AI button. Prepaid credits are planned.
+- Privacy: no account, works locally, does not upload code.
+- Builds are not yet signed by Apple or Microsoft, so the first launch asks for confirmation (macOS: System Settings → Privacy & Security → Open Anyway; Windows SmartScreen: More info → Run anyway).
+
+## Website
+
+- [Home](https://gitchrono.com/): features, how it works, pricing (open-core) and FAQ
+- [Download](https://gitchrono.com/download/): downloads for every platform, install steps, requirements, updates and checksums
+- [Changelog](https://gitchrono.com/changelog/): release notes for every version
+
+## Source
+
+- [GitHub repository](https://github.com/KumaVolt/GitChrono): source code, issues and README (build with `cargo run -p gitchrono-app`)
+- [Releases](https://github.com/KumaVolt/GitChrono/releases): every build plus `SHA256SUMS.txt`
+- [Roadmap](https://github.com/KumaVolt/GitChrono/blob/main/docs/roadmap.md): planned features
+
+## Optional
+
+- [Latest release](https://github.com/KumaVolt/GitChrono/releases/latest): direct link to the newest version
