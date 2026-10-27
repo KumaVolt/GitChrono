@@ -132,6 +132,11 @@ pub struct Workspace {
     pub explanation_scroll: ScrollHandle,
     /// Commit whose id was just copied, for a moment of "Copied ✓".
     pub copied_sha: Option<String>,
+    /// Set when a push needs the remote's new commits first; the banner
+    /// offers "Pull and push".
+    pub push_behind: Option<SharedString>,
+    /// Clear the commit message on the next render (needs the window).
+    pub reset_commit_form: bool,
     /// AI explanation of a commit: (commit id, text).
     pub explanation: Option<(String, SharedString)>,
     /// Folder view for file lists (staging and commit files) instead of full paths.
@@ -215,6 +220,8 @@ impl Workspace {
             multi: Vec::new(),
             file_multi: (false, Vec::new()),
             explanation: None,
+            reset_commit_form: false,
+            push_behind: None,
             copied_sha: None,
             message_scroll: ScrollHandle::new(),
             explanation_scroll: ScrollHandle::new(),
@@ -818,6 +825,38 @@ impl Workspace {
         .detach();
     }
 
+    /// Push, but ask to pull first when the branch is known to be behind, and
+    /// offer the same when the remote turns out to have moved on.
+    pub fn push(&mut self, cx: &mut Context<Self>) {
+        if self.status.behind > 0 {
+            let upstream = self.status.upstream.clone().unwrap_or_else(|| "the remote".into());
+            let n = self.status.behind;
+            self.push_behind = Some(format!("{upstream} has {n} commit{} you don't have yet. Pull them in first, then push.", if n == 1 { "" } else { "s" }).into());
+            cx.notify();
+            return;
+        }
+        self.push_behind = None;
+        let rejected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = rejected.clone();
+        self.run_inner("Pushing".into(), Change::Refs, true, cx, move |r| {
+            r.push(false).inspect_err(|e| {
+                if e.downcast_ref::<gitchrono_core::GitError>().is_some_and(|g| g.is_push_rejected()) {
+                    flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            })
+        }, move |this, ok| {
+            if !ok && rejected.load(std::sync::atomic::Ordering::Relaxed) {
+                this.error = None;
+                this.push_behind = Some("Someone pushed to this branch in the meantime. Pull their commits in first, then push.".into());
+            }
+        });
+    }
+
+    pub fn pull_and_push(&mut self, cx: &mut Context<Self>) {
+        self.push_behind = None;
+        self.run("Pulling and pushing", Change::Refs, cx, |r| r.pull_then_push());
+    }
+
     pub fn toggle_section(&mut self, key: &str, cx: &mut Context<Self>) {
         if !self.collapsed_sections.remove(key) {
             self.collapsed_sections.insert(key.to_string());
@@ -1027,15 +1066,23 @@ impl Workspace {
         }
     }
 
-    pub fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn commit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let summary = self.summary.read(cx).value().trim().to_string();
         let body = self.description.read(cx).value().trim().to_string();
         let message = if body.is_empty() { summary } else { format!("{summary}\n\n{body}") };
         let amend = self.amend;
-        self.summary.update(cx, |s, cx| s.set_value("", window, cx));
-        self.description.update(cx, |s, cx| s.set_value("", window, cx));
-        self.amend = false;
-        self.run("Committing", Change::Refs, cx, move |repo| repo.commit(&message, amend));
+        // The form clears only once the commit worked, so a failure keeps the message.
+        self.run_inner("Committing".into(), Change::Refs, true, cx, move |repo| repo.commit(&message, amend), |this, ok| {
+            if ok {
+                this.reset_commit_form = true;
+                this.amend = false;
+                // The files just committed are gone from the lists; so is their diff.
+                if matches!(this.diff.as_ref().map(|d| &d.source), Some(DiffSource::Workdir { .. })) {
+                    this.diff = None;
+                }
+                this.file_multi.1.clear();
+            }
+        });
     }
 
     pub fn selected_commit(&self) -> Option<&Commit> {

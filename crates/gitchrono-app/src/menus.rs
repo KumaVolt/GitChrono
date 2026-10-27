@@ -124,11 +124,11 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
                     .separator();
             } else {
                 menu = menu
-                    .item(item("Push", ws, |this, _, cx| this.run("Pushing", Change::Refs, cx, |r| r.push(false))))
+                    .item(item("Push", ws, |this, _, cx| this.push(cx)))
                     .item(item("Force push (with lease)…", ws, |this, window, cx| {
                         this.confirm("Force push", "Overwrite the remote branch with your local history?".into(), "Force push", "Pushing", window, cx, |r| r.push(true));
                     }))
-                    .item(item("Pull", ws, |this, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(false))))
+                    .item(item("Pull", ws, |this, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None))))
                     .separator();
             }
             menu.when(!is_current, |menu| {

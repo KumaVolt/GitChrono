@@ -16,7 +16,9 @@ use syntect::parsing::{SyntaxReference, SyntaxSet};
 /// Diffs bigger than this stay plain: highlighting cost grows with size.
 const MAX_LINES: usize = 6000;
 
-static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+/// bat's extended set (two-face): TypeScript, TSX, Vue, Svelte, TOML,
+/// Dockerfile, Kotlin, Swift, … on top of syntect's defaults.
+static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
 static THEME: LazyLock<Theme> = LazyLock::new(|| {
     let mut themes = ThemeSet::load_defaults().themes;
     themes.remove("base16-ocean.dark").unwrap_or_default()
@@ -33,8 +35,22 @@ pub fn display_text(content: &str) -> String {
 
 fn syntax_for(path: &str) -> Option<&'static SyntaxReference> {
     let name = path.rsplit('/').next().unwrap_or(path);
+    // Hunks start mid-file, and the PHP grammar starts in HTML mode until
+    // `<?php`, so plain PHP files use the code-only grammar. Templates
+    // (Blade, .phtml) really are HTML with PHP in it.
+    if name.ends_with(".php") && !name.ends_with(".blade.php") {
+        if let Some(code) = SYNTAXES.find_syntax_by_name("PHP Source") {
+            return Some(code);
+        }
+    }
     let ext = name.rsplit_once('.').map_or(name, |(_, e)| e);
-    SYNTAXES.find_syntax_by_extension(ext).or_else(|| SYNTAXES.find_syntax_by_extension(name))
+    // Extensions the grammars don't list themselves.
+    let ext = match ext {
+        "jsx" | "mjs" | "cjs" => "js",
+        "mts" | "cts" => "ts",
+        other => other,
+    };
+    SYNTAXES.find_syntax_by_extension(ext).or_else(|| SYNTAXES.find_syntax_by_extension(name)).or_else(|| SYNTAXES.find_syntax_by_token(ext))
 }
 
 pub fn highlight_diff(path: &str, diff: &FileDiff) -> Highlights {
@@ -91,4 +107,22 @@ mod tests {
 
         assert!(highlight_diff("notes.unknownext", &diff).is_empty());
     }
+
+    #[test]
+    fn php_hunks_from_the_middle_of_a_file_are_colored() {
+        // No `<?php` in the hunk: the HTML-mode grammar would leave it plain.
+        let patch = "diff --git a/A.php b/A.php\n--- a/A.php\n+++ b/A.php\n@@ -10,2 +10,2 @@\n     public function run(): void\n-        $a = 1;\n+        $b = strtoupper('two');\n";
+        let diff = parse_patch("A.php", patch);
+        let hl = highlight_diff("app/A.php", &diff);
+        let colors: std::collections::HashSet<_> = hl[&(0, 2)].iter().map(|(_, c)| format!("{c:?}")).collect();
+        assert!(colors.len() > 2, "expected several colors, got {colors:?}");
+    }
+
+    #[test]
+    fn common_languages_are_covered() {
+        for path in ["a.ts", "a.tsx", "a.jsx", "a.vue", "a.svelte", "a.scss", "Cargo.toml", "a.kt", "a.swift", "a.dart", "Dockerfile", "a.rs", "a.py", "a.go", "a.blade.php", "a.php"] {
+            assert!(syntax_for(path).is_some(), "no syntax for {path}");
+        }
+    }
 }
+

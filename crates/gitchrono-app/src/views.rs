@@ -258,11 +258,11 @@ impl Workspace {
                 })))
                 .child(
                     tool("pull", if st.behind > 0 { format!("Pull ↓{}", st.behind) } else { "Pull".into() })
-                        .on_click(cx.listener(|this, _, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(false)))),
+                        .on_click(cx.listener(|this, _, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None)))),
                 )
                 .child(
                     tool("push", if st.ahead > 0 { format!("Push ↑{}", st.ahead) } else { "Push".into() })
-                        .on_click(cx.listener(|this, _, _, cx| this.run("Pushing", Change::Refs, cx, |r| r.push(false)))),
+                        .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
                 )
                 .child(tool("branch", "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
                 .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
@@ -287,6 +287,27 @@ impl Workspace {
         let op = self.status.operation;
         div()
             .flex_none()
+            .when_some(self.push_behind.clone(), |d, text| {
+                d.child(
+                    div()
+                        .id("push-behind")
+                        .px_3()
+                        .py_2()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .bg(c(theme::WARN).opacity(0.12))
+                        .border_b_1()
+                        .border_color(c(theme::WARN))
+                        .text_xs()
+                        .child(div().flex_1().child(text))
+                        .child(Button::new("pull-and-push").label("Pull and push").primary().xsmall().on_click(cx.listener(|this, _, _, cx| this.pull_and_push(cx))))
+                        .child(Button::new("push-behind-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                            this.push_behind = None;
+                            cx.notify();
+                        }))),
+                )
+            })
             .when_some(self.error.clone(), |d, err| {
                 d.child(
                     div()
@@ -1584,7 +1605,11 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::mem::take(&mut self.reset_commit_form) {
+            self.summary.update(cx, |s, cx| s.set_value("", window, cx));
+            self.description.update(cx, |s, cx| s.set_value("", window, cx));
+        }
         let root = div().relative().size_full().flex().flex_col().bg(c(theme::BG)).text_color(c(theme::TEXT));
         if self.repo.is_none() {
             return root.child(self.render_welcome(cx));

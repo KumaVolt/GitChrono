@@ -37,3 +37,37 @@ fn remote_checkout_reuses_and_fast_forwards_the_local_branch() {
     assert_eq!(git(&work, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap().trim(), "feature");
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn push_rejection_is_recognised_and_pull_then_push_fixes_it() {
+    let base = std::env::temp_dir().join(format!("gitchrono-push-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    git(&base, &["init", "-q", "--bare", "-b", "main", "origin.git"]).unwrap();
+    for name in ["a", "b"] {
+        git(&base, &["clone", "-q", "origin.git", name]).unwrap();
+        let dir = base.join(name);
+        for args in [&["config", "user.name", "T"][..], &["config", "user.email", "t@example.com"], &["config", "commit.gpgsign", "false"]] {
+            git(&dir, args).unwrap();
+        }
+    }
+    let (a, b) = (base.join("a"), base.join("b"));
+    std::fs::write(a.join("f"), "1").unwrap();
+    git(&a, &["add", "."]).unwrap();
+    git(&a, &["commit", "-qm", "one"]).unwrap();
+    git(&a, &["push", "-q", "-u", "origin", "main"]).unwrap();
+    git(&b, &["pull", "-q", "origin", "main"]).unwrap();
+    git(&b, &["branch", "-q", "-u", "origin/main"]).unwrap();
+    commit(&a, "two");
+    git(&a, &["push", "-q"]).unwrap();
+    std::fs::write(b.join("g"), "x").unwrap();
+    git(&b, &["add", "."]).unwrap();
+    git(&b, &["commit", "-qm", "local"]).unwrap();
+
+    let repo = Repo::open(&b).unwrap();
+    let err = repo.push(false).unwrap_err();
+    assert!(err.downcast_ref::<gitchrono_core::GitError>().is_some_and(|e| e.is_push_rejected()), "{err:#}");
+    repo.pull_then_push().unwrap();
+    assert_eq!(git(&b, &["rev-parse", "HEAD"]).unwrap(), git(&b, &["rev-parse", "origin/main"]).unwrap());
+    let _ = std::fs::remove_dir_all(&base);
+}

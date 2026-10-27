@@ -19,6 +19,15 @@ pub struct GitError {
     pub code: Option<i32>,
 }
 
+impl GitError {
+    /// A push the remote refused because it has commits we don't (not a
+    /// permission or network problem).
+    pub fn is_push_rejected(&self) -> bool {
+        // "[remote rejected]" (hooks, protected branches) needs a different fix.
+        self.command.starts_with("push") && ["[rejected]", "fetch first", "non-fast-forward"].iter().any(|s| self.stderr.contains(s))
+    }
+}
+
 pub fn git(cwd: &Path, args: &[&str]) -> Result<String> {
     let output = crate::gitbin::git_command()
         .args(args)
@@ -497,8 +506,17 @@ impl Repo {
         self.git(&["fetch", "--all", "--prune"]).map(drop)
     }
 
-    pub fn pull(&self, rebase: bool) -> Result<()> {
-        self.git(&["pull", if rebase { "--rebase" } else { "--no-rebase" }]).map(drop)
+    /// `rebase: None` follows the user's `pull.rebase` setting, merging when
+    /// it isn't set (plain `git pull` refuses diverged branches then).
+    pub fn pull(&self, rebase: Option<bool>) -> Result<()> {
+        let rebase = rebase.or_else(|| self.git(&["config", "--type=bool", "--get", "pull.rebase"]).ok().map(|v| v.trim() == "true"));
+        self.git(&["pull", if rebase == Some(true) { "--rebase" } else { "--no-rebase" }]).map(drop)
+    }
+
+    /// Pulls (as `pull(None)`), then pushes: for when the remote moved on.
+    pub fn pull_then_push(&self) -> Result<()> {
+        self.pull(None)?;
+        self.push(false)
     }
 
     pub fn push(&self, force: bool) -> Result<()> {

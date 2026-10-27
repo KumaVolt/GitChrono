@@ -152,9 +152,9 @@ impl Shell {
             let w = ws.read(cx);
             items.extend([
                 git_op("Fetch", "Fetching", Change::Refs, |r| r.fetch()),
-                git_op("Pull", "Pulling", Change::Refs, |r| r.pull(false)),
-                git_op("Pull (rebase)", "Pulling", Change::Refs, |r| r.pull(true)),
-                git_op("Push", "Pushing", Change::Refs, |r| r.push(false)),
+                git_op("Pull", "Pulling", Change::Refs, |r| r.pull(None)),
+                git_op("Pull (rebase)", "Pulling", Change::Refs, |r| r.pull(Some(true))),
+                repo_action("Push", |ws, _, cx| ws.push(cx)),
                 repo_action("Create branch…", |ws, w, cx| ws.prompt_create_branch(w, cx)),
                 repo_action("Stash changes…", |ws, w, cx| ws.prompt_stash(w, cx)),
                 repo_action("Create worktree…", |ws, w, cx| ws.prompt_new_worktree(w, cx)),
