@@ -48,6 +48,7 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ("gitoxide", "reads your history quickly (MIT / Apache-2.0)", "https://github.com/GitoxideLabs/gitoxide"),
     ("Alacritty", "terminal emulation (Apache-2.0)", "https://github.com/alacritty/alacritty"),
     ("syntect", "syntax highlighting in diffs (MIT)", "https://github.com/trishume/syntect"),
+    ("bat syntaxes", "extra languages for diffs, via two-face (MIT / Apache-2.0)", "https://github.com/CosmicHorrorDev/two-face"),
     ("Gravatar", "profile pictures, when turned on in Settings", "https://gravatar.com"),
     ("Claude Code", "Anthropic's AI coding assistant, which helped build GitChrono", "https://claude.com/claude-code"),
 ];
