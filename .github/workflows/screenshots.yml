@@ -1,8 +1,10 @@
 name: Screenshots
 
 # Retakes the README screenshots (docs/screenshots/, see scripts/screenshots.sh)
-# for every release tag, or when run manually, and commits them to main when they
-# changed. macOS only: gpui renders with Metal, which Linux runners don't have.
+# and the website's hero image (site/assets/screenshot.png, the terminal shot)
+# for every release tag, or when run manually, commits them to main when they
+# changed and redeploys the website. macOS only: gpui renders with Metal, which
+# Linux runners don't have.
 on:
   push:
     tags: ["v*"]
@@ -10,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # start the website deploy for a new hero image
 
 concurrency:
   group: screenshots
@@ -32,7 +35,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Take screenshots
-        run: ./scripts/screenshots.sh docs/screenshots
+        run: |
+          ./scripts/screenshots.sh docs/screenshots
+          cp docs/screenshots/terminal.png site/assets/screenshot.png
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,15 +46,22 @@ jobs:
           if-no-files-found: error
 
       # Pushes made with GITHUB_TOKEN don't start other workflows, so this
-      # commit doesn't trigger CI or a website deploy.
+      # commit doesn't trigger CI or a website deploy; the deploy is started
+      # explicitly when the hero image changed.
       - name: Commit changed screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git add docs/screenshots
+          git add docs/screenshots site/assets/screenshot.png
           if git diff --cached --quiet; then
             echo "Screenshots unchanged"
             exit 0
           fi
+          site_changed=$(git diff --cached --quiet -- site/assets/screenshot.png || echo yes)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update README screenshots for ${GITHUB_REF_NAME}"
+          git commit -m "Update README and website screenshots for ${GITHUB_REF_NAME}"
           git push origin HEAD:main
+          if [ -n "$site_changed" ]; then
+            gh workflow run pages.yml --repo "${{ github.repository }}" --ref main
+          fi
