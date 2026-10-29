@@ -924,6 +924,49 @@ impl Workspace {
             .into_any_element()
     }
 
+    /// The message card turned editor: summary, description, Save / Cancel.
+    fn render_message_edit(&self, edit: &crate::workspace::MessageEdit, cx: &mut Context<Self>) -> impl IntoElement {
+        let short = &edit.id[..7];
+        let save = match (edit.stash, edit.pushed) {
+            (Some(_), _) => "Rename stash",
+            (None, Some(true)) if edit.confirm_pushed => "Reword anyway",
+            _ => "Save",
+        };
+        let note = match edit.pushed {
+            Some(true) if edit.confirm_pushed => Some((theme::WARN, format!("{short} is already on a remote. Rewording rewrites it (and any commits after it), so the branch will need a force push."))),
+            Some(true) => Some((theme::FAINT, "Already pushed: saving rewrites it.".to_string())),
+            _ => None,
+        };
+        div()
+            .p_3()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .rounded_md()
+            .border_1()
+            .border_color(c(theme::ACCENT))
+            .bg(c(theme::BG))
+            .child(focus_editor_on_press(edit.summary.focus_handle(cx), Input::new(&edit.summary)))
+            .child(focus_editor_on_press(edit.description.focus_handle(cx), Textarea::new(&edit.description).h(px(120.))))
+            .when_some(note, |d, (color, text)| d.child(div().text_xs().text_color(c(color)).child(text)))
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .justify_end()
+                    .child(Button::new("cancel-message").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))))
+                    .child(
+                        Button::new("save-message")
+                            .label(save)
+                            .small()
+                            .when(edit.confirm_pushed, |b| b.danger())
+                            .when(!edit.confirm_pushed, |b| b.primary())
+                            .disabled(self.busy.is_some() || edit.pushed.is_none())
+                            .on_click(cx.listener(|this, _, _, cx| this.save_message_edit(cx))),
+                    ),
+            )
+    }
+
     fn render_detail(&self, commit: &Commit, cx: &mut Context<Self>) -> impl IntoElement {
         let id = commit.id.clone();
         let short = commit.short_id.clone();
@@ -932,6 +975,8 @@ impl Workspace {
         let menu_id = id.clone();
         let explanation = self.explanation.as_ref().filter(|(for_id, _)| *for_id == commit.id).map(|(_, text)| text.clone());
         let explaining = self.ai_busy.as_ref().is_some_and(|b| b.as_ref() == "Explaining…");
+        let editing = self.message_edit.as_ref().filter(|e| e.id == commit.id);
+        let is_stash = self.snap.refs.stashes.iter().any(|s| s.target == commit.id);
 
         div()
             .flex()
@@ -970,6 +1015,16 @@ impl Workspace {
                                     .on_click(cx.listener(move |this, _, _, cx| this.copy_sha(&full, cx)))
                             })
                             .child(div().flex_1())
+                            .when(editing.is_none(), |d| {
+                                d.child(
+                                    Button::new("edit-message")
+                                        .label(if is_stash { "Rename stash" } else { "Edit message" })
+                                        .xsmall()
+                                        .ghost()
+                                        .disabled(self.busy.is_some())
+                                        .on_click(cx.listener(|this, _, window, cx| this.edit_message(window, cx))),
+                                )
+                            })
                             .child(
                                 Button::new("explain-commit")
                                     .label(if explaining { "Explaining…" } else { "✨ Explain commit" })
@@ -979,8 +1034,9 @@ impl Workspace {
                                     .on_click(cx.listener(|this, _, window, cx| this.explain_commit(window, cx))),
                             ),
                     )
+                    .when_some(editing, |d, edit| d.child(self.render_message_edit(edit, cx)))
                     // Long messages scroll inside the card instead of pushing the files down.
-                    .child(
+                    .when(editing.is_none(), |d| d.child(
                         div()
                             .id("commit-message")
                             .relative()
@@ -1008,7 +1064,7 @@ impl Workspace {
                                 })))
                             })
                             .vertical_scrollbar(&self.message_scroll),
-                    )
+                    ))
                     .when_some(explanation, |d, text| {
                         d.child(
                             div()

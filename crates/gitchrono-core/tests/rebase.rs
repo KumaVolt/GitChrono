@@ -84,3 +84,85 @@ fn resolve_a_merge_conflict() {
     assert_eq!(std::fs::read_to_string(dir.join("f.txt")).unwrap(), "top\nfeature middle\nmain middle\nbottom\n");
     assert!(repo.status().unwrap().conflicted.is_empty());
 }
+
+fn reword_repo(name: &str) -> (std::path::PathBuf, Repo) {
+    let dir = std::env::temp_dir().join(format!("gitchrono-reword-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["config", "user.name", "T"],
+        &["config", "user.email", "t@example.com"],
+        &["config", "commit.gpgsign", "false"],
+        &["config", "core.autocrlf", "false"],
+    ] {
+        git(&dir, args).unwrap();
+    }
+    for (file, msg) in [("a", "add a"), ("b", "add b"), ("c", "add c")] {
+        std::fs::write(dir.join(file), msg).unwrap();
+        git(&dir, &["add", "."]).unwrap();
+        git(&dir, &["commit", "-qm", msg]).unwrap();
+    }
+    let repo = Repo::open(&dir).unwrap();
+    (dir, repo)
+}
+
+#[test]
+fn reword_head_amends_the_message_only() {
+    let (dir, repo) = reword_repo("head");
+    let tree = git(&dir, &["rev-parse", "HEAD^{tree}"]).unwrap();
+    std::fs::write(dir.join("staged"), "x").unwrap();
+    git(&dir, &["add", "staged"]).unwrap();
+
+    repo.reword("HEAD", "Add c\n\nNow with a body.").unwrap();
+    assert_eq!(log(&dir), ["add a", "add b", "Add c"]);
+    assert_eq!(git(&dir, &["log", "-1", "--format=%b"]).unwrap().trim(), "Now with a body.");
+    assert_eq!(git(&dir, &["rev-parse", "HEAD^{tree}"]).unwrap(), tree, "staged changes aren't committed");
+    assert_eq!(git(&dir, &["diff", "--cached", "--name-only"]).unwrap().trim(), "staged");
+    assert!(repo.reword("HEAD", "  \n").is_err(), "empty message");
+}
+
+#[test]
+fn reword_older_and_root_commits() {
+    let (dir, repo) = reword_repo("older");
+    std::fs::write(dir.join("a"), "dirty").unwrap();
+    let middle = git(&dir, &["rev-parse", "HEAD~1"]).unwrap().trim().to_string();
+    let reworded = repo.reword(&middle, "Add b, reworded").unwrap();
+    assert_eq!(git(&dir, &["rev-parse", "HEAD~1"]).unwrap().trim(), reworded);
+    assert_eq!(log(&dir), ["add a", "Add b, reworded", "add c"]);
+    assert_eq!(std::fs::read_to_string(dir.join("a")).unwrap(), "dirty", "local changes survive");
+
+    let root = git(&dir, &["rev-list", "--max-parents=0", "HEAD"]).unwrap().trim().to_string();
+    repo.reword(&root, "Add a first").unwrap();
+    assert_eq!(log(&dir), ["Add a first", "Add b, reworded", "add c"]);
+}
+
+#[test]
+fn reword_refuses_merges_and_other_branches() {
+    let (dir, repo) = reword_repo("merge");
+    git(&dir, &["checkout", "-qb", "side", "HEAD~1"]).unwrap();
+    std::fs::write(dir.join("side"), "s").unwrap();
+    git(&dir, &["add", "."]).unwrap();
+    git(&dir, &["commit", "-qm", "side"]).unwrap();
+    let side = git(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+    git(&dir, &["checkout", "-q", "main"]).unwrap();
+    git(&dir, &["merge", "-q", "--no-ff", "-m", "merge side", "side"]).unwrap();
+
+    let err = repo.reword("HEAD", "renamed merge").unwrap_err().to_string();
+    assert!(err.contains("merge commit"), "{err}");
+    let err = repo.reword("HEAD~1", "below a merge").unwrap_err().to_string();
+    assert!(err.contains("merges"), "{err}");
+    git(&dir, &["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+    let err = repo.reword(&side, "elsewhere").unwrap_err().to_string();
+    assert!(err.contains("current branch"), "{err}");
+}
+
+#[test]
+fn pushed_commits_are_detected() {
+    let (dir, repo) = reword_repo("pushed");
+    let head = git(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+    assert!(!repo.is_pushed(&head).unwrap());
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD~1"]).unwrap();
+    assert!(repo.is_pushed("HEAD~1").unwrap());
+    assert!(!repo.is_pushed(&head).unwrap());
+}

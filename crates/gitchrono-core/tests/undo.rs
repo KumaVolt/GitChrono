@@ -122,3 +122,52 @@ fn worktree_add_list_remove() {
     repo.remove_worktree(&path, false).unwrap();
     assert_eq!(repo.worktrees().unwrap().len(), 1);
 }
+
+#[test]
+fn undo_reword() {
+    let (dir, repo) = repo("reword");
+    commit_file(&dir, "b.txt", "b\n", "second");
+    let entry = record(&repo, "Rewording", true, || repo.reword("HEAD~1", "First, reworded").map(drop).unwrap());
+    assert_eq!(git(&dir, &["log", "--format=%s"]).unwrap(), "second\nFirst, reworded\n");
+    repo.undo(&entry).unwrap();
+    assert_eq!(git(&dir, &["log", "--format=%s"]).unwrap(), "second\nfirst\n");
+    repo.redo(&entry).unwrap();
+    assert_eq!(git(&dir, &["log", "--format=%s"]).unwrap(), "second\nFirst, reworded\n");
+}
+
+fn stash_list(dir: &Path) -> Vec<String> {
+    git(dir, &["stash", "list", "--format=%gs"]).unwrap().lines().map(str::to_string).collect()
+}
+
+#[test]
+fn rename_stash_in_place_and_undo() {
+    let (dir, repo) = repo("stash");
+    for n in ["one", "two", "three"] {
+        std::fs::write(dir.join("a.txt"), format!("stashed {n}\n")).unwrap();
+        repo.stash_push(Some(n)).unwrap();
+    }
+    assert_eq!(stash_list(&dir), ["On main: three", "On main: two", "On main: one"]);
+    let tree = git(&dir, &["rev-parse", "stash@{1}^{tree}"]).unwrap();
+    let date = git(&dir, &["log", "-1", "--format=%ad", "stash@{1}"]).unwrap();
+
+    let edit = repo.rename_stash(1, "On main: second\n\nwith a body").unwrap();
+    assert_eq!(stash_list(&dir), ["On main: three", "On main: second", "On main: one"]);
+    assert_eq!(git(&dir, &["log", "-1", "--format=%B", "stash@{1}"]).unwrap().trim(), "On main: second\n\nwith a body");
+    assert_eq!(git(&dir, &["rev-parse", "stash@{1}^{tree}"]).unwrap(), tree, "same changes");
+    assert_eq!(git(&dir, &["log", "-1", "--format=%ad", "stash@{1}"]).unwrap(), date, "same date");
+    assert!(repo.rename_stash(7, "nope").is_err());
+
+    // The stash moved down a slot meanwhile: undo still finds it.
+    std::fs::write(dir.join("a.txt"), "four\n").unwrap();
+    repo.stash_push(Some("four")).unwrap();
+    let entry = UndoEntry::stash("Renaming stash", edit);
+    repo.undo(&entry).unwrap();
+    assert_eq!(stash_list(&dir), ["On main: four", "On main: three", "On main: two", "On main: one"]);
+    repo.redo(&entry).unwrap();
+    assert_eq!(stash_list(&dir)[2], "On main: second");
+
+    repo.stash_drop(2).unwrap();
+    assert!(repo.undo(&entry).is_err(), "dropped since");
+    repo.stash_pop(0).unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "four\n");
+}

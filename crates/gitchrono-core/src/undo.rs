@@ -1,6 +1,10 @@
 //! Undo / redo for any operation: snapshot the local refs before and after,
 //! and move the repository from one snapshot back to the other.
 //!
+//! Stash messages are the exception: stashes aren't in the snapshot (undoing
+//! a stash push would lose its changes), so a stash rename records its own
+//! [`StashEdit`] instead.
+//!
 //! Only refs move. The working tree is never overwritten: undoing a commit is
 //! a soft reset (changes come back staged) and every other HEAD move uses
 //! `reset --keep` / `checkout`, which refuse to clobber local changes.
@@ -30,15 +34,36 @@ impl RefState {
 #[derive(Debug, Clone)]
 pub struct UndoEntry {
     pub label: String,
-    pub before: RefState,
-    pub after: RefState,
-    /// A commit or amend: undo is a soft reset, so its changes come back staged.
-    pub soft: bool,
+    pub change: UndoChange,
+}
+
+#[derive(Debug, Clone)]
+pub enum UndoChange {
+    Refs {
+        before: RefState,
+        after: RefState,
+        /// A commit or amend: undo is a soft reset, so its changes come back staged.
+        soft: bool,
+    },
+    Stash(StashEdit),
+}
+
+/// A stash whose commit (and message) was swapped for another in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StashEdit {
+    pub old_target: String,
+    pub old_message: String,
+    pub new_target: String,
+    pub new_message: String,
 }
 
 impl UndoEntry {
     pub fn new(label: &str, before: RefState, after: RefState, soft: bool) -> Option<Self> {
-        (before != after).then(|| Self { label: label.to_string(), before, after, soft })
+        (before != after).then(|| Self { label: label.to_string(), change: UndoChange::Refs { before, after, soft } })
+    }
+
+    pub fn stash(label: &str, edit: StashEdit) -> Self {
+        Self { label: label.to_string(), change: UndoChange::Stash(edit) }
     }
 }
 
@@ -66,11 +91,25 @@ impl Repo {
     }
 
     pub fn undo(&self, entry: &UndoEntry) -> Result<()> {
-        self.move_refs(&entry.after, &entry.before, entry.soft)
+        match &entry.change {
+            UndoChange::Refs { before, after, soft } => self.move_refs(after, before, *soft),
+            UndoChange::Stash(edit) => self.swap_stash(&edit.new_target, &edit.old_target, &edit.old_message),
+        }
     }
 
     pub fn redo(&self, entry: &UndoEntry) -> Result<()> {
-        self.move_refs(&entry.before, &entry.after, entry.soft)
+        match &entry.change {
+            UndoChange::Refs { before, after, soft } => self.move_refs(before, after, *soft),
+            UndoChange::Stash(edit) => self.swap_stash(&edit.old_target, &edit.new_target, &edit.new_message),
+        }
+    }
+
+    /// Put `to` where the stash `from` is now, wherever it moved in the list.
+    fn swap_stash(&self, from: &str, to: &str, message: &str) -> Result<()> {
+        let Some(stash) = self.stashes()?.into_iter().find(|s| s.target == from) else {
+            bail!("that stash was dropped or changed since, so it can't be undone");
+        };
+        self.replace_stash(stash.index, to, message)
     }
 
     /// Move refs from `from` (which must be the current state) to `to`.
