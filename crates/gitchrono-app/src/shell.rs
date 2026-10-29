@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -67,6 +68,26 @@ pub(crate) struct Confirm {
     pub(crate) action: ConfirmAction,
 }
 
+/// A repository tab being dragged along the tab strip.
+#[derive(Clone)]
+struct DraggedTab {
+    index: usize,
+    label: SharedString,
+}
+
+/// Where a dragged tab would land, while the drag is on.
+struct TabDrag {
+    from: usize,
+    to: usize,
+    /// Pointer x of the first drag move, for the reorder threshold.
+    start: Pixels,
+    /// Past the threshold; a drag that never gets there counts as a click.
+    moved: bool,
+    /// Width of the dragged tab's slot, so neighbours only swap once the
+    /// pointer would end up over it.
+    width: Option<Pixels>,
+}
+
 enum Tab {
     Home,
     Repo { path: PathBuf, view: Entity<Workspace>, _sub: Subscription },
@@ -88,6 +109,7 @@ pub struct Shell {
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
     pub(crate) confirm: Option<Confirm>,
+    tab_drag: Option<TabDrag>,
     /// Branch and status of each repository listed on the new-tab page.
     summaries: HashMap<PathBuf, Result<RepoSummary, SharedString>>,
     filter: Entity<InputState>,
@@ -125,7 +147,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, tab_drag: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);
@@ -305,6 +327,75 @@ impl Shell {
         self.activate(next, window, cx);
     }
 
+    /// Closes every repository tab but `index`, which becomes the active one.
+    pub(crate) fn close_other_tabs(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.tabs.get(index), Some(Tab::Repo { .. })) {
+            return;
+        }
+        let mut i = 0;
+        self.tabs.retain(|t| {
+            let keep = matches!(t, Tab::Home) || i == index;
+            i += 1;
+            keep
+        });
+        let kept = self.tabs.iter().position(|t| matches!(t, Tab::Repo { .. })).unwrap_or(0);
+        self.activate(kept, window, cx);
+    }
+
+    /// Closes the tabs after `index`; if the active one was among them,
+    /// `index` becomes active.
+    pub(crate) fn close_tabs_to_right(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if index + 1 >= self.tabs.len() {
+            return;
+        }
+        self.tabs.truncate(index + 1);
+        self.activate(self.active.min(index), window, cx);
+    }
+
+    /// The pointer is over strip slot `slot` while repository tab `from` is
+    /// dragged. Home (slot 0) never moves and nothing lands before it.
+    fn drag_tab_move(&mut self, slot: usize, from: usize, bounds: Bounds<Pixels>, x: Pixels, cx: &mut Context<Self>) {
+        let drag = self.tab_drag.get_or_insert(TabDrag { from, to: from, start: x, moved: false, width: None });
+        if slot == drag.to {
+            drag.width = Some(bounds.size.width);
+        }
+        if !drag.moved && (x - drag.start).abs() > px(4.) {
+            drag.moved = true;
+            cx.notify();
+        }
+        if !drag.moved || slot == 0 || slot == drag.to || x < bounds.left() || x >= bounds.right() {
+            return;
+        }
+        let Some(width) = drag.width else { return };
+        let past = if slot > drag.to { x >= bounds.right() - width } else { x <= bounds.left() + width };
+        if past {
+            drag.to = slot;
+            cx.notify();
+        }
+    }
+
+    /// Moves the dragged tab to where it was dropped; the active tab stays active.
+    fn drop_tab(&mut self, from: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let drag = self.tab_drag.take();
+        let Some(to) = drag.filter(|d| d.moved && d.from == from).map(|d| d.to) else {
+            self.activate(from, window, cx);
+            return;
+        };
+        if to != from && to > 0 && from < self.tabs.len() && to < self.tabs.len() {
+            let active = self.active;
+            let tab = self.tabs.remove(from);
+            self.tabs.insert(to, tab);
+            self.active = if active == from {
+                to
+            } else {
+                let shifted = if active > from { active - 1 } else { active };
+                if shifted >= to { shifted + 1 } else { shifted }
+            };
+            self.save_session();
+        }
+        cx.notify();
+    }
+
     /// The home tab doubles as the new-tab page.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.activate(0, window, cx);
@@ -435,6 +526,14 @@ impl Shell {
     // ------------------------------------------------------------ rendering
 
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let count = self.tabs.len();
+        // While a tab is dragged it's shown in the slot it would drop into.
+        let drag = self.tab_drag.as_ref().filter(|_| cx.has_active_drag()).map(|d| (d.from, d.to));
+        let mut order: Vec<usize> = (0..count).collect();
+        if let Some((from, to)) = drag.filter(|&(from, to)| from < count && to < count) {
+            let tab = order.remove(from);
+            order.insert(to, tab);
+        }
         div()
             .id("tab-bar")
             .h(px(36.))
@@ -447,13 +546,18 @@ impl Shell {
             .border_b_1()
             .border_color(c(theme::BORDER))
             .overflow_x_scroll()
-            .children(self.tabs.iter().enumerate().map(|(i, tab)| {
+            .on_drop(cx.listener(|this, dragged: &DraggedTab, window, cx| this.drop_tab(dragged.index, window, cx)))
+            .children(order.into_iter().enumerate().map(|(slot, i)| {
+                let tab = &self.tabs[i];
                 let selected = i == self.active && self.settings.is_none();
                 let home = matches!(tab, Tab::Home);
+                let shell = cx.entity().downgrade();
                 let label = match tab {
                     Tab::Home => "Home".to_string(),
                     Tab::Repo { path, .. } => projects::display_name(path),
                 };
+                let drag_label: SharedString = label.clone().into();
+                let dragged = drag.is_some_and(|(from, _)| from == i);
                 div()
                     .id(("tab", i))
                     .h(px(30.))
@@ -483,7 +587,22 @@ impl Shell {
                                 })),
                         )
                     })
+                    .when(dragged, |d| d.opacity(0.4))
                     .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
+                    .on_drag_move(cx.listener(move |this, ev: &DragMoveEvent<DraggedTab>, _, cx| {
+                        let from = ev.drag(cx).index;
+                        this.drag_tab_move(slot, from, ev.bounds, ev.event.position.x, cx);
+                    }))
+                    .when(!home, |d| {
+                        d.on_drag(DraggedTab { index: i, label: drag_label }, |t, _, _, cx| cx.new(|_| crate::drag::DragPreview(t.label.clone())))
+                    })
+                    .map(|d| {
+                        if home {
+                            d.into_any_element()
+                        } else {
+                            d.context_menu(move |menu, _, _| crate::menus::tab_menu(menu, &shell, i, count)).into_any_element()
+                        }
+                    })
             }))
             .child(
                 div()
@@ -884,6 +1003,10 @@ impl Render for Shell {
         // would never reach our handlers.
         if window.focused(cx).is_none() {
             self.focus.focus(window, cx);
+        }
+        // A tab drag that ended outside the strip is cancelled.
+        if self.tab_drag.is_some() && !cx.has_active_drag() {
+            self.tab_drag = None;
         }
         let content = if !matches!(self.git, GitCheck::Ok { .. }) {
             crate::git_help::render(&self.git, cx).into_any_element()

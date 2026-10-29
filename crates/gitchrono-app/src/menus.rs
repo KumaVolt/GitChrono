@@ -327,3 +327,16 @@ pub fn pr_menu(menu: PopupMenu, ws: &Ws, number: u64, url: String) -> PopupMenu 
         .separator()
         .item(copy_item("Copy link", ws, url))
 }
+
+/// Menu for repository tab `index` of `count` tabs (the home tab included).
+pub fn tab_menu(menu: PopupMenu, shell: &WeakEntity<crate::shell::Shell>, index: usize, count: usize) -> PopupMenu {
+    let action = |label: &'static str, f: fn(&mut crate::shell::Shell, usize, &mut Window, &mut Context<crate::shell::Shell>)| {
+        let shell = shell.clone();
+        PopupMenuItem::new(label).on_click(move |_, window, cx| {
+            shell.update(cx, |this, cx| f(this, index, window, cx)).ok();
+        })
+    };
+    menu.item(action("Close tab", crate::shell::Shell::close_tab))
+        .item(action("Close other tabs", crate::shell::Shell::close_other_tabs).disabled(count <= 2))
+        .item(action("Close tabs to the right", crate::shell::Shell::close_tabs_to_right).disabled(index + 1 >= count))
+}
