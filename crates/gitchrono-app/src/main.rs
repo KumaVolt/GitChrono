@@ -42,7 +42,7 @@ fn main() {
         shell::init(cx);
         palette::init(cx);
         workspace::init(cx);
-        avatars::init(projects::Session::load().gravatar, cx);
+        avatars::init(projects::Session::load().gravatar_enabled(), cx);
         update::cleanup();
 
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);

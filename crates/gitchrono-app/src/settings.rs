@@ -491,7 +491,7 @@ impl Shell {
                     "From Gravatar, which receives a hash of each author's email; people without one get a pattern. GitHub no-reply addresses use GitHub.".into(),
                 )
                 .child(Button::new("prefs-gravatar-link").label("Gravatar ↗").xsmall().ghost().on_click(|_, _, cx| cx.open_url("https://gravatar.com")))
-                .child(switch("prefs-gravatar", self.session.gravatar, cx, |s, v| s.gravatar = v)),
+                .child(switch("prefs-gravatar", self.session.gravatar_enabled(), cx, |s, v| s.profile_pictures = Some(v))),
             )
     }
 }

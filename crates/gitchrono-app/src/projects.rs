@@ -24,9 +24,11 @@ pub struct Session {
     /// Home-screen groups the user collapsed: project folders, or "" for Recent.
     #[serde(default)]
     pub collapsed: Vec<PathBuf>,
-    /// Show authors' profile pictures (Gravatar). Opt-in: lookups send hashed emails.
+    /// Show authors' profile pictures (Gravatar, which gets hashed emails);
+    /// `None` means on. A new key: sessions saved before it was on by default
+    /// all carry `"gravatar": false`, which is dropped.
     #[serde(default)]
-    pub gravatar: bool,
+    pub profile_pictures: Option<bool>,
     /// Check GitHub for new releases; `None` means on.
     #[serde(default)]
     pub auto_update: Option<bool>,
@@ -52,6 +54,10 @@ impl Session {
         if let Ok(text) = serde_json::to_string_pretty(self) {
             std::fs::write(path, text).ok();
         }
+    }
+
+    pub fn gravatar_enabled(&self) -> bool {
+        self.profile_pictures.unwrap_or(true)
     }
 
     pub fn touch_recent(&mut self, repo: &Path) {
@@ -208,6 +214,14 @@ mod tests {
             scan_repos(&root).iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(found, ["a", "group/b", "wt"]);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn profile_pictures_are_on_unless_turned_off() {
+        let old: Session = serde_json::from_str(r#"{"gravatar": false}"#).unwrap();
+        assert!(old.gravatar_enabled());
+        let off: Session = serde_json::from_str(r#"{"profile_pictures": false}"#).unwrap();
+        assert!(!off.gravatar_enabled());
     }
 
     #[test]

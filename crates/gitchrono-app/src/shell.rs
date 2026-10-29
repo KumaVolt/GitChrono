@@ -282,7 +282,7 @@ impl Shell {
     /// Changes an app preference stored with the session.
     pub(crate) fn set_pref(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Session)) {
         change(&mut self.session);
-        cx.set_global(crate::avatars::Prefs { gravatar: self.session.gravatar });
+        cx.set_global(crate::avatars::Prefs { gravatar: self.session.gravatar_enabled() });
         self.save_session();
         cx.refresh_windows();
     }
