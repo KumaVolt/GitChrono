@@ -9,7 +9,7 @@ use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::shell::Shell;
+use crate::shell::{Confirm, Shell};
 use crate::theme::{self, c};
 use crate::update::{self, Installed, Release};
 
@@ -136,12 +136,31 @@ impl Shell {
         .detach();
     }
 
+    /// Asks first when quitting would lose something (a commit message being
+    /// written, a running command), then relaunches into the installed update.
     fn restart_into_update(&mut self, cx: &mut Context<Self>) {
-        let UpdateState::Ready(_, installed) = &self.update else { return };
+        if !matches!(self.update, UpdateState::Ready(..)) {
+            return;
+        }
+        let lost = self.unsaved_work(cx);
+        if lost.is_empty() {
+            return self.relaunch(cx);
+        }
+        self.confirm = Some(Confirm {
+            title: "Restart GitChrono?".into(),
+            message: format!("Restarting closes GitChrono, losing {}.", lost.join("; ")).into(),
+            confirm: "Restart".into(),
+            action: Box::new(|this, cx| this.relaunch(cx)),
+        });
+        cx.notify();
+    }
+
+    fn relaunch(&mut self, cx: &mut Context<Self>) {
+        let UpdateState::Ready(release, installed) = &self.update else { return };
         match update::relaunch(installed) {
             Ok(()) => cx.quit(),
             Err(e) => {
-                self.update = UpdateState::Failed(format!("Couldn't restart: {e}").into());
+                self.update = UpdateState::Failed(format!("Version {} is installed, but GitChrono couldn't restart ({e}). Quit and reopen it to finish updating.", release.version).into());
                 cx.notify();
             }
         }
@@ -170,21 +189,13 @@ impl Shell {
                     .on_click(cx.listener(|this, _, _, cx| this.start_update(cx)))
                     .into_any_element(),
             ),
-            UpdateState::Ready(..) => Some(
-                div()
-                    .id("update-restart")
-                    .px_2()
-                    .h(px(18.))
-                    .flex()
-                    .items_center()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(c(theme::ADD))
-                    .bg(c(theme::ADD_BG))
-                    .text_color(c(theme::TEXT))
+            UpdateState::Ready(r, _) => Some(
+                Button::new("update-restart")
+                    .label(format!("Restart to update to {}", r.version))
+                    .xsmall()
+                    .success()
                     .cursor_pointer()
-                    .hover(|d| d.bg(c(theme::ADD).opacity(0.3)))
-                    .child("Update ready (restart GitChrono)")
+                    .tooltip("Quits GitChrono and opens the new version")
                     .on_click(cx.listener(|this, _, _, cx| this.restart_into_update(cx)))
                     .into_any_element(),
             ),
