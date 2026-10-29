@@ -61,12 +61,12 @@ enum RowRemove {
 
 type ConfirmAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
 
-/// A yes/no question on the home tab (same look as the workspace prompt).
+/// A yes/no question over the whole window (same look as the workspace prompt).
 pub(crate) struct Confirm {
-    title: SharedString,
-    message: SharedString,
-    confirm: SharedString,
-    action: ConfirmAction,
+    pub(crate) title: SharedString,
+    pub(crate) message: SharedString,
+    pub(crate) confirm: SharedString,
+    pub(crate) action: ConfirmAction,
 }
 
 enum Tab {
@@ -319,6 +319,20 @@ impl Shell {
             Some(Tab::Repo { view, .. }) => Some(view),
             _ => None,
         }
+    }
+
+    /// Per open repository, what quitting now would lose ("atom: the commit message").
+    pub(crate) fn unsaved_work(&self, cx: &App) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter_map(|t| match t {
+                Tab::Repo { path, view, .. } => {
+                    let lost = view.read(cx).unsaved_work(cx);
+                    (!lost.is_empty()).then(|| format!("{}: {}", projects::display_name(path), lost.join(", ")))
+                }
+                Tab::Home => None,
+            })
+            .collect()
     }
 
     pub(crate) fn auto_update_enabled(&self) -> bool {

@@ -382,6 +382,27 @@ impl Workspace {
         }
     }
 
+    /// What quitting now would throw away or cut short, for the restart prompt.
+    pub fn unsaved_work(&self, cx: &App) -> Vec<&'static str> {
+        let mut lost = Vec::new();
+        if !self.summary.read(cx).value().trim().is_empty() || !self.description.read(cx).value().trim().is_empty() {
+            lost.push("the commit message");
+        }
+        if self.busy.is_some() {
+            lost.push("a running git command");
+        }
+        if self.rebase_editor.is_some() {
+            lost.push("the rebase plan");
+        }
+        if self.conflict.as_ref().is_some_and(|c| c.choices.iter().any(Option::is_some)) {
+            lost.push("conflict choices");
+        }
+        if self.terminals.iter().any(|t| !t.read(cx).exited) {
+            lost.push("open terminals");
+        }
+        lost
+    }
+
     pub fn prompt_create_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_prompt("Create branch", Some("Branches from HEAD and checks it out.".into()), Some(""), "Create & checkout", false, window, cx, |name| {
             ("Creating branch".into(), Box::new(move |r: &Repo| r.create_branch(&name, None, true)) as Op)
