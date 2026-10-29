@@ -4,7 +4,7 @@
 use anyhow::{Result, bail};
 use gitchrono_ai::{AiConfig, PRESETS, Request};
 use gitchrono_core::Repo;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
@@ -12,6 +12,7 @@ use gpui_kit::*;
 
 use crate::theme::{self, c};
 use crate::workspace::{Selection, Suggest, Workspace};
+use crate::ui::button;
 
 /// The saved AI configuration, shared by every tab so they all agree on it.
 pub struct AiSetup {
@@ -282,7 +283,7 @@ impl Workspace {
                         ))
                         .child(label("Provider"))
                         .child(div().flex().flex_wrap().gap_1().children(PRESETS.iter().enumerate().map(|(i, p)| {
-                            Button::new(("ai-preset", i))
+                            button(("ai-preset", i))
                                 .label(p.name)
                                 .small()
                                 .when(i == s.preset, |b| b.primary())
@@ -300,19 +301,19 @@ impl Workspace {
                                 .flex()
                                 .gap_2()
                                 .when(s.has_stored_key, |d| {
-                                    d.child(Button::new("ai-remove-key").label("Remove key").small().ghost().on_click(
+                                    d.child(button("ai-remove-key").label("Remove key").small().ghost().on_click(
                                         cx.listener(|this, _, window, cx| this.remove_ai_key(window, cx)),
                                     ))
                                 })
                                 .child(div().flex_1())
-                                .child(Button::new("ai-cancel").label("Cancel").small().ghost().on_click(cx.listener(
+                                .child(button("ai-cancel").label("Cancel").small().ghost().on_click(cx.listener(
                                     |this, _, _, cx| {
                                         this.ai_settings = None;
                                         cx.notify();
                                     },
                                 )))
                                 .child(
-                                    Button::new("ai-save")
+                                    button("ai-save")
                                         .label("Save")
                                         .small()
                                         .primary()

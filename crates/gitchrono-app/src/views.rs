@@ -10,7 +10,7 @@ use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::Icon;
 use gpui_kit::component::menu::{ContextMenu, ContextMenuExt as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
@@ -21,6 +21,7 @@ use crate::menus;
 use crate::theme::{self, c};
 use crate::watcher::Change;
 use crate::workspace::{DiffSource, Selection, Workspace, WorkspaceEvent};
+use crate::ui::{ButtonExt as _, button};
 
 pub fn relative_time(secs: i64) -> String {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(secs);
@@ -99,7 +100,7 @@ fn counted_tool_button(id: &'static str, icon: ToolIcon, label: SharedString, co
         Some((n, _)) => format!("{label} {n}").into(),
         None => label.clone(),
     };
-    Button::new(id)
+    button(id)
         .ghost()
         .small()
         .h(px(42.))
@@ -208,7 +209,7 @@ fn focus_editor_on_press(editor: FocusHandle, input: impl IntoElement) -> Div {
 /// actions above the staging lists.
 fn tinted_button(id: &'static str, label: impl Into<SharedString>, icon: IconName, color: u32, cx: &App) -> Button {
     let tint: Hsla = c(color).into();
-    Button::new(id)
+    button(id)
         .label(label)
         .icon(Icon::new(icon))
         .xsmall()
@@ -281,7 +282,7 @@ impl Workspace {
         let st = &self.status;
         let busy = self.busy.is_some();
         let branch = st.branch.clone().unwrap_or_else(|| "detached HEAD".into());
-        let tool = |id: &'static str, icon: ToolIcon, label: String| tool_button(id, icon, label.into()).disabled(busy);
+        let tool = |id: &'static str, icon: ToolIcon, label: String| tool_button(id, icon, label.into()).disabled_if(busy);
 
         div()
             .h(px(52.))
@@ -315,13 +316,13 @@ impl Workspace {
                 bar.child(
                     tool_button("undo", ToolIcon::Undo, "Undo".into())
                         .tooltip(undo.clone().map_or("Nothing to undo".to_string(), |l| format!("Undo {} (⌘Z)", l.to_lowercase())))
-                        .disabled(undo.is_none() || busy)
+                        .disabled_if(undo.is_none() || busy)
                         .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
                 )
                 .child(
                     tool_button("redo", ToolIcon::Redo, "Redo".into())
                         .tooltip(redo.clone().map_or("Nothing to redo".to_string(), |l| format!("Redo {} (⌘⇧Z)", l.to_lowercase())))
-                        .disabled(redo.is_none() || busy)
+                        .disabled_if(redo.is_none() || busy)
                         .on_click(cx.listener(|this, _, _, cx| this.redo(cx))),
                 )
             })
@@ -334,17 +335,17 @@ impl Workspace {
                 // Same colors as the projects overview: ahead is green, behind amber.
                 .child(
                     counted_tool_button("pull", ToolIcon::Pull, "Pull".into(), (st.behind > 0).then(|| (format!("↓{}", st.behind), theme::WARN)))
-                        .disabled(busy)
+                        .disabled_if(busy)
                         .on_click(cx.listener(|this, _, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None)))),
                 )
                 .child(
                     counted_tool_button("push", ToolIcon::Push, "Push".into(), (st.ahead > 0).then(|| (format!("↑{}", st.ahead), theme::ADD)))
-                        .disabled(busy)
+                        .disabled_if(busy)
                         .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
                 )
                 .child(tool("branch", ToolIcon::Branch, "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
-                .child(tool("stash", ToolIcon::Stash, "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
-                .child(tool("pop", ToolIcon::Pop, "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
+                .child(tool("stash", ToolIcon::Stash, "Stash".into()).disabled_if(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
+                .child(tool("pop", ToolIcon::Pop, "Pop".into()).disabled_if(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.apply_stash(0, true, cx),
                 )))
                 .child(div().mx_1().w_px().h(px(32.)).bg(c(theme::BORDER)))
@@ -379,8 +380,8 @@ impl Workspace {
                         .border_color(c(theme::WARN))
                         .text_xs()
                         .child(div().flex_1().child(text))
-                        .child(Button::new("pull-and-push").label("Pull and push").primary().xsmall().on_click(cx.listener(|this, _, _, cx| this.pull_and_push(cx))))
-                        .child(Button::new("push-behind-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                        .child(button("pull-and-push").label("Pull and push").primary().xsmall().on_click(cx.listener(|this, _, _, cx| this.pull_and_push(cx))))
+                        .child(button("push-behind-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                             this.push_behind = None;
                             cx.notify();
                         }))),
@@ -400,7 +401,7 @@ impl Workspace {
                         .border_color(c(theme::ACCENT))
                         .text_xs()
                         .child(div().flex_1().child(text))
-                        .child(Button::new("notice-dismiss").label("Dismiss").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                        .child(button("notice-dismiss").label("Dismiss").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                             this.notice = None;
                             cx.notify();
                         }))),
@@ -425,7 +426,7 @@ impl Workspace {
                         for (i, upstream) in candidates.iter().take(3).enumerate() {
                             let upstream = upstream.clone();
                             row = row.child(
-                                Button::new(("track-upstream", i)).label(format!("Track {upstream} and pull")).xsmall().when(i == 0, |b| b.primary()).on_click(
+                                button(("track-upstream", i)).label(format!("Track {upstream} and pull")).xsmall().when(i == 0, |b| b.primary()).on_click(
                                     cx.listener(move |this, _, _, cx| {
                                         let upstream = upstream.clone();
                                         this.run("Pulling", Change::Refs, cx, move |r| r.track_and_pull(&upstream));
@@ -438,7 +439,7 @@ impl Workspace {
                         for (i, remote) in remotes.iter().take(3).enumerate() {
                             let label = if remotes.len() == 1 { "Publish this branch".to_string() } else { format!("Publish to {remote}") };
                             let remote = remote.clone();
-                            row = row.child(Button::new(("publish-branch", i)).label(label).xsmall().when(i == 0, |b| b.primary()).on_click(cx.listener(
+                            row = row.child(button(("publish-branch", i)).label(label).xsmall().when(i == 0, |b| b.primary()).on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     let remote = remote.clone();
                                     this.run("Publishing", Change::Refs, cx, move |r| r.publish(&remote));
@@ -447,7 +448,7 @@ impl Workspace {
                         }
                     }
                     NoUpstream::NoRemote => {
-                        row = row.child(Button::new("no-remote-terminal").label("Open terminal").primary().xsmall().on_click(cx.listener(|this, _, window, cx| {
+                        row = row.child(button("no-remote-terminal").label("Open terminal").primary().xsmall().on_click(cx.listener(|this, _, window, cx| {
                             this.no_upstream = None;
                             if !this.terminal_open {
                                 this.toggle_terminal(window, cx);
@@ -457,7 +458,7 @@ impl Workspace {
                     }
                     NoUpstream::Detached => {}
                 }
-                d.child(row.child(Button::new("no-upstream-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                d.child(row.child(button("no-upstream-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                     this.no_upstream = None;
                     cx.notify();
                 }))))
@@ -475,7 +476,7 @@ impl Workspace {
                         .border_color(c(theme::DEL))
                         .text_xs()
                         .child(div().flex_1().child(err))
-                        .child(Button::new("dismiss").label("Dismiss").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                        .child(button("dismiss").label("Dismiss").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                             this.error = None;
                             cx.notify();
                         }))),
@@ -499,13 +500,13 @@ impl Workspace {
                             menus::operation_name(op)
                         )))
                         .child(
-                            Button::new("op-continue").label("Continue").xsmall().primary().disabled(conflicts > 0).on_click(
+                            button("op-continue").label("Continue").xsmall().primary().disabled_if(conflicts > 0).on_click(
                                 cx.listener(move |this, _, _, cx| {
                                     this.run("Continuing", Change::Refs, cx, move |r| r.resolve_operation(op, false))
                                 }),
                             ),
                         )
-                        .child(Button::new("op-abort").label("Abort").xsmall().ghost().on_click(cx.listener(move |this, _, _, cx| {
+                        .child(button("op-abort").label("Abort").xsmall().ghost().on_click(cx.listener(move |this, _, _, cx| {
                             this.run("Aborting", Change::Refs, cx, move |r| r.resolve_operation(op, true))
                         }))),
                 )
@@ -691,7 +692,7 @@ impl Workspace {
                     .flex()
                     .items_center()
                     .child(header.pr_1())
-                    .child(Button::new("pr-new").label("New").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+                    .child(button("pr-new").label("New").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                         let Some(root) = this.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
                         this.run_inner("Opening pull request form".into(), Change::Refs, false, cx, move |_| crate::github::create_in_browser(&root), |_, _| {});
                     }))),
@@ -828,7 +829,7 @@ impl Workspace {
                         .text_xs()
                         .text_color(c(theme::MUTED))
                         .child(div().flex_1().child(text))
-                        .child(Button::new("filter-clear").label("Show all").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.clear_ref_filter(cx)))),
+                        .child(button("filter-clear").label("Show all").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.clear_ref_filter(cx)))),
                 )
             })
             .child(header)
@@ -858,10 +859,10 @@ impl Workspace {
                 .border_color(c(theme::BORDER))
                 .child(div().flex_1().max_w(px(420.)).child(Input::new(&search.input).small()))
                 .child(div().text_xs().text_color(c(theme::MUTED)).child(count))
-                .child(Button::new("search-prev").label("↑").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.step_search(-1, cx))))
-                .child(Button::new("search-next").label("↓").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.step_search(1, cx))))
+                .child(button("search-prev").label("↑").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.step_search(-1, cx))))
+                .child(button("search-next").label("↓").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.step_search(1, cx))))
                 .child(div().flex_1())
-                .child(Button::new("search-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.close_search(cx)))),
+                .child(button("search-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.close_search(cx)))),
         )
     }
 
@@ -1136,14 +1137,14 @@ impl Workspace {
                     .flex()
                     .gap_2()
                     .justify_end()
-                    .child(Button::new("cancel-message").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))))
+                    .child(button("cancel-message").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))))
                     .child(
-                        Button::new("save-message")
+                        button("save-message")
                             .label(save)
                             .small()
                             .when(edit.confirm_pushed, |b| b.danger())
                             .when(!edit.confirm_pushed, |b| b.primary())
-                            .disabled(self.busy.is_some() || edit.pushed.is_none())
+                            .disabled_if(self.busy.is_some() || edit.pushed.is_none())
                             .on_click(cx.listener(|this, _, _, cx| this.save_message_edit(cx))),
                     ),
             )
@@ -1199,20 +1200,20 @@ impl Workspace {
                             .child(div().flex_1())
                             .when(editing.is_none(), |d| {
                                 d.child(
-                                    Button::new("edit-message")
+                                    button("edit-message")
                                         .label(if is_stash { "Rename stash" } else { "Edit message" })
                                         .xsmall()
                                         .ghost()
-                                        .disabled(self.busy.is_some())
+                                        .disabled_if(self.busy.is_some())
                                         .on_click(cx.listener(|this, _, window, cx| this.edit_message(window, cx))),
                                 )
                             })
                             .child(
-                                Button::new("explain-commit")
+                                button("explain-commit")
                                     .label(if explaining { "Explaining…" } else { "✨ Explain commit" })
                                     .xsmall()
                                     .outline()
-                                    .disabled(self.ai_busy.is_some())
+                                    .disabled_if(self.ai_busy.is_some())
                                     .on_click(cx.listener(|this, _, window, cx| this.explain_commit(window, cx))),
                             ),
                     )
@@ -1450,7 +1451,7 @@ impl Workspace {
                 let active = self.file_tree == tree;
                 let fg: Hsla = c(if active { theme::TEXT } else { theme::MUTED }).into();
                 let tint: Hsla = c(theme::ACCENT).into();
-                Button::new((id, i))
+                button((id, i))
                     .label(label)
                     .icon(Icon::new(icon))
                     .xsmall()
@@ -1475,7 +1476,7 @@ impl Workspace {
             .into_iter()
             .filter_map(|r| if let TreeRow::Dir { path, .. } = r { Some(format!("{prefix}{path}")) } else { None })
             .collect();
-        Button::new((key, 99usize)).label(if any_collapsed { "Expand all" } else { "Collapse all" }).xsmall().ghost().cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+        button((key, 99usize)).label(if any_collapsed { "Expand all" } else { "Collapse all" }).xsmall().ghost().cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
             if any_collapsed {
                 this.collapsed_dirs.retain(|d| !d.starts_with(&prefix));
             } else {
@@ -1499,7 +1500,7 @@ impl Workspace {
                     return self
                         .folder_row((id, row).into(), id, &path, &name, depth, collapsed, under.len(), cx)
                         .child(
-                            Button::new((if staged { "unstage-dir" } else { "stage-dir" }, row))
+                            button((if staged { "unstage-dir" } else { "stage-dir" }, row))
                                 .label(if staged { "Unstage" } else { "Stage" })
                                 .xsmall()
                                 .ghost()
@@ -1539,7 +1540,7 @@ impl Workspace {
                 .child(status_letter(f))
                 .child(div().flex_1().min_w_0().truncate().child(name))
                 .child(
-                    Button::new((if staged { "unstage" } else { "stage" }, index))
+                    button((if staged { "unstage" } else { "stage" }, index))
                         .label(if staged { "Unstage" } else { "Stage" })
                         .xsmall()
                         .ghost()
@@ -1579,7 +1580,7 @@ impl Workspace {
         let picked_staged = self.picked_files(&st.staged, true);
         let pick_button = |id: &'static str, picked: Vec<FileChange>, staged: bool, cx: &mut Context<Self>| {
             (picked.len() > 1).then(|| {
-                Button::new(id)
+                button(id)
                     .label(format!("{} {}", if staged { "Unstage" } else { "Stage" }, picked.len()))
                     .xsmall()
                     .primary()
@@ -1619,7 +1620,7 @@ impl Workspace {
                     .pb_1p5()
                     .child(section_header("Unstaged files", unstaged.len()))
                     .children(pick_button("stage-picked", picked_unstaged, false, cx))
-                    .child(tinted_button("stage-all", "Stage all changes", IconName::ListPlus, theme::ADD, cx).disabled(unstaged.is_empty()).on_click(
+                    .child(tinted_button("stage-all", "Stage all changes", IconName::ListPlus, theme::ADD, cx).disabled_if(unstaged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Staging", Change::Status, cx, |r| r.stage_all())),
                     )),
             )
@@ -1636,7 +1637,7 @@ impl Workspace {
                     .border_color(c(theme::BORDER))
                     .child(section_header("Staged files", st.staged.len()))
                     .children(pick_button("unstage-picked", picked_staged, true, cx))
-                    .child(tinted_button("unstage-all", "Unstage all changes", IconName::ListMinus, theme::DEL, cx).disabled(st.staged.is_empty()).on_click(
+                    .child(tinted_button("unstage-all", "Unstage all changes", IconName::ListMinus, theme::DEL, cx).disabled_if(st.staged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Unstaging", Change::Status, cx, |r| r.unstage_all())),
                     )),
             )
@@ -1663,15 +1664,15 @@ impl Workspace {
                             .flex()
                             .gap_2()
                             .child(
-                                Button::new("ai-commit")
+                                button("ai-commit")
                                     .label(self.ai_busy.clone().unwrap_or_else(|| "✨ Write message".into()))
                                     .small()
                                     .ghost()
-                                    .disabled(self.ai_busy.is_some() || st.staged.is_empty())
+                                    .disabled_if(self.ai_busy.is_some() || st.staged.is_empty())
                                     .on_click(cx.listener(|this, _, window, cx| this.generate_commit_message(window, cx))),
                             )
                             .child(
-                                Button::new("amend")
+                                button("amend")
                                     .label(if self.amend { "✓ Amend" } else { "Amend" })
                                     .small()
                                     .ghost()
@@ -1681,7 +1682,7 @@ impl Workspace {
                                     })),
                             )
                             .child(
-                                Button::new("commit")
+                                button("commit")
                                     .label(if st.staged.is_empty() {
                                         "Commit".to_string()
                                     } else {
@@ -1690,7 +1691,7 @@ impl Workspace {
                                     .small()
                                     .primary()
                                     .flex_1()
-                                    .disabled(!can_commit || self.busy.is_some())
+                                    .disabled_if(!can_commit || self.busy.is_some())
                                     .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx))),
                             ),
                     ),
@@ -1733,20 +1734,20 @@ impl Workspace {
                                 .gap_2()
                                 .when(prompt.suggest.is_some() && self.ai.is_some(), |d| {
                                     d.child(
-                                        Button::new("prompt-suggest")
+                                        button("prompt-suggest")
                                             .label(self.ai_busy.clone().unwrap_or_else(|| "✨ Suggest".into()))
                                             .small()
                                             .ghost()
-                                            .disabled(self.ai_busy.is_some())
+                                            .disabled_if(self.ai_busy.is_some())
                                             .on_click(cx.listener(|this, _, window, cx| this.suggest_for_prompt(window, cx))),
                                     )
                                     .child(div().flex_1())
                                 })
-                                .child(Button::new("prompt-cancel").label("Cancel").small().ghost().on_click(cx.listener(
+                                .child(button("prompt-cancel").label("Cancel").small().ghost().on_click(cx.listener(
                                     |this, _, _, cx| this.cancel_prompt(cx),
                                 )))
                                 .child(
-                                    Button::new("prompt-ok")
+                                    button("prompt-ok")
                                         .label(prompt.confirm.clone())
                                         .small()
                                         .when(prompt.danger, |b| b.danger())
@@ -1785,13 +1786,13 @@ impl Workspace {
                             .flex()
                             .flex_wrap()
                             .gap_1()
-                            .child(Button::new("multi-pick").label(format!("Cherry-pick {n}")).small().outline().disabled(has_merge).on_click(cx.listener(
+                            .child(button("multi-pick").label(format!("Cherry-pick {n}")).small().outline().disabled_if(has_merge).on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     let ids = pick.clone();
                                     this.run("Cherry-picking", Change::Refs, cx, move |r| ids.iter().try_for_each(|id| r.cherry_pick(id)));
                                 },
                             )))
-                            .child(Button::new("multi-revert").label(format!("Revert {n}")).small().outline().disabled(has_merge).on_click(cx.listener(
+                            .child(button("multi-revert").label(format!("Revert {n}")).small().outline().disabled_if(has_merge).on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     let ids = revert.clone();
                                     // Newest first, so each revert applies cleanly on top of the last.
@@ -1799,11 +1800,11 @@ impl Workspace {
                                 },
                             )))
                             .when_some(oldest_parent, |d, base| {
-                                d.child(Button::new("multi-rebase").label("Interactive rebase…").small().outline().on_click(cx.listener(
+                                d.child(button("multi-rebase").label("Interactive rebase…").small().outline().on_click(cx.listener(
                                     move |this, _, window, cx| this.open_rebase_editor(base.clone(), window, cx),
                                 )))
                             })
-                            .child(Button::new("multi-copy").label("Copy SHAs").small().ghost().on_click(cx.listener(move |_, _, _, cx| {
+                            .child(button("multi-copy").label("Copy SHAs").small().ghost().on_click(cx.listener(move |_, _, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(shas.clone()));
                             }))),
                     ),
@@ -1862,6 +1863,7 @@ impl Workspace {
                             .child(
                                 div()
                                     .id(("term-close", i))
+                                    .cursor_pointer()
                                     .text_color(c(theme::FAINT))
                                     .hover(|d| d.text_color(c(theme::TEXT)))
                                     .child("×")
@@ -1873,7 +1875,7 @@ impl Workspace {
                             .on_click(cx.listener(move |this, _, window, cx| this.select_terminal(i, window, cx)))
                     }))
                     .child(
-                        Button::new("term-new")
+                        button("term-new")
                             .label("+")
                             .xsmall()
                             .ghost()
@@ -1881,7 +1883,7 @@ impl Workspace {
                     )
                     .child(div().flex_1())
                     .child(
-                        Button::new("term-hide")
+                        button("term-hide")
                             .label("Hide")
                             .xsmall()
                             .ghost()
@@ -1907,13 +1909,13 @@ impl Workspace {
                     .flex()
                     .gap_2()
                     .child(
-                        Button::new("welcome-open")
+                        button("welcome-open")
                             .label("Open Repository…")
                             .primary()
                             .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
                     )
-                    .child(Button::new("welcome-clone").label("Clone…").on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::CloneRequested))))
-                    .child(Button::new("welcome-init").label("New Repository…").on_click(cx.listener(|this, _, _, cx| this.prompt_init(cx)))),
+                    .child(button("welcome-clone").label("Clone…").on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::CloneRequested))))
+                    .child(button("welcome-init").label("New Repository…").on_click(cx.listener(|this, _, _, cx| this.prompt_init(cx)))),
             )
             .when_some(self.error.clone(), |d, e| d.child(div().text_sm().text_color(c(theme::DEL)).child(e)))
     }

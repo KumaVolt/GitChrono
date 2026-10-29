@@ -22,6 +22,7 @@ mod settings;
 mod shell;
 mod terminal;
 mod theme;
+mod ui;
 mod update;
 mod views;
 mod watcher;

@@ -1,15 +1,16 @@
 //! Interactive rebase editor: reorder commits and pick an action for each.
 
 use gitchrono_core::{RebaseAction, RebaseStep};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::theme::{self, c};
 use crate::watcher::Change;
 use crate::workspace::Workspace;
+use crate::ui::{ButtonExt as _, button};
 
 pub struct RebaseEditor {
     base: String,
@@ -139,7 +140,7 @@ impl Workspace {
                                 .border_b_1()
                                 .border_color(c(theme::BORDER))
                                 .child(
-                                    Button::new(("rebase-action", i))
+                                    button(("rebase-action", i))
                                         .label(step.action.label())
                                         .xsmall()
                                         .outline()
@@ -161,19 +162,19 @@ impl Workspace {
                                         .into_any_element()
                                 })
                                 .child(
-                                    Button::new(("rebase-up", i))
+                                    button(("rebase-up", i))
                                         .label("↑")
                                         .xsmall()
                                         .ghost()
-                                        .disabled(i == 0)
+                                        .disabled_if(i == 0)
                                         .on_click(cx.listener(move |this, _, _, cx| this.move_rebase_step(i, true, cx))),
                                 )
                                 .child(
-                                    Button::new(("rebase-down", i))
+                                    button(("rebase-down", i))
                                         .label("↓")
                                         .xsmall()
                                         .ghost()
-                                        .disabled(i + 1 == n)
+                                        .disabled_if(i + 1 == n)
                                         .on_click(cx.listener(move |this, _, _, cx| this.move_rebase_step(i, false, cx))),
                                 )
                         })))
@@ -187,16 +188,16 @@ impl Workspace {
                                     d.child(div().text_xs().text_color(c(theme::DEL)).child("The first commit can't be squashed or fixed up."))
                                 })
                                 .child(div().flex_1())
-                                .child(Button::new("rebase-cancel").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| {
+                                .child(button("rebase-cancel").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| {
                                     this.rebase_editor = None;
                                     cx.notify();
                                 })))
                                 .child(
-                                    Button::new("rebase-start")
+                                    button("rebase-start")
                                         .label("Start rebase")
                                         .small()
                                         .primary()
-                                        .disabled(first_melds || self.busy.is_some())
+                                        .disabled_if(first_melds || self.busy.is_some())
                                         .on_click(cx.listener(|this, _, _, cx| this.start_rebase(cx))),
                                 ),
                         ),
