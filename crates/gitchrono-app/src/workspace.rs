@@ -129,6 +129,8 @@ pub struct Workspace {
     pub snap: Arc<Snapshot>,
     pub status: Status,
     pub graph: Arc<Graph>,
+    /// Per graph row, the lanes drawn as a stash's dashed line.
+    pub stash_lines: Arc<Vec<u64>>,
     pub selection: Selection,
     pub commit_files: Vec<FileChange>,
     pub commit_signature: Option<gitchrono_core::Signature>,
@@ -237,6 +239,7 @@ impl Workspace {
             snap: Arc::default(),
             status: Status::default(),
             graph: Arc::default(),
+            stash_lines: Arc::default(),
             selection: Selection::None,
             commit_files: Vec::new(),
             commit_signature: None,
@@ -603,13 +606,14 @@ impl Workspace {
             let graph = gitchrono_graph::layout(
                 snap.commits.iter().map(|c| (c.id.as_str(), c.parents.iter().map(String::as_str))),
             );
-            anyhow::Ok((snap, graph))
+            let stash_lines = crate::graph_paint::stash_lines(&graph, &snap.commits);
+            anyhow::Ok((snap, graph, stash_lines))
         });
         self.load_task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok((mut snap, graph)) => {
+                    Ok((mut snap, graph, stash_lines)) => {
                         for gone in this.snap.worktrees.iter().filter(|old| !snap.worktrees.iter().any(|w| w.path == old.path)) {
                             cx.emit(WorkspaceEvent::WorktreeRemoved(gone.path.clone()));
                         }
@@ -624,6 +628,7 @@ impl Workspace {
                         this.multi.clear();
                         this.snap = Arc::new(snap);
                         this.graph = Arc::new(graph);
+                        this.stash_lines = Arc::new(stash_lines);
                         this.selection = match selected_id {
                             Some(id) => this
                                 .snap
