@@ -139,6 +139,9 @@ pub struct Workspace {
     /// Set when a push needs the remote's new commits first; the banner
     /// offers "Pull and push".
     pub push_behind: Option<SharedString>,
+    /// Something done on the user's behalf worth knowing (changes stashed to
+    /// make room for a stash); cleared by the next operation.
+    pub notice: Option<SharedString>,
     /// Clear the commit message on the next render (needs the window).
     pub reset_commit_form: bool,
     /// AI explanation of a commit: (commit id, text).
@@ -226,6 +229,7 @@ impl Workspace {
             explanation: None,
             reset_commit_form: false,
             push_behind: None,
+            notice: None,
             copied_sha: None,
             message_scroll: ScrollHandle::new(),
             explanation_scroll: ScrollHandle::new(),
@@ -701,6 +705,7 @@ impl Workspace {
         }
         self.busy = Some(format!("{label}…").into());
         self.error = None;
+        self.notice = None;
         cx.notify();
         let soft = label == "Committing";
         let task = cx.background_spawn(async move {
@@ -725,11 +730,7 @@ impl Workspace {
                     this.error = Some(format!("{e:#}").into());
                 }
                 if let Some(entry) = entry {
-                    this.undo_stack.push(entry);
-                    if this.undo_stack.len() > UNDO_LIMIT {
-                        this.undo_stack.remove(0);
-                    }
-                    this.redo_stack.clear();
+                    this.record_undo(entry);
                 }
                 done(this, ok);
                 // Our own refresh covers whatever the watcher saw meanwhile.
@@ -739,6 +740,38 @@ impl Workspace {
             .ok();
         })
         .detach();
+    }
+
+    fn record_undo(&mut self, entry: UndoEntry) {
+        self.undo_stack.push(entry);
+        if self.undo_stack.len() > UNDO_LIMIT {
+            self.undo_stack.remove(0);
+        }
+        self.redo_stack.clear();
+    }
+
+    /// Apply or pop `stash@{index}` over uncommitted changes: changes in other
+    /// files stay put; if the stash touches a changed file, the changes are
+    /// stashed first (undoably) and a notice says so.
+    pub fn apply_stash(&mut self, index: usize, pop: bool, cx: &mut Context<Self>) {
+        let label = if pop { "Popping stash" } else { "Applying stash" };
+        let slot = Arc::new(std::sync::Mutex::new(None));
+        let out = slot.clone();
+        self.run_inner(label.into(), Change::Refs, true, cx, move |r| {
+            let swap = r.apply_stash(index, pop)?;
+            *out.lock().unwrap() = swap;
+            Ok(())
+        }, move |this, _| {
+            let Some(swap) = slot.lock().ok().and_then(|mut s| s.take()) else { return };
+            let mut files = swap.overlap.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+            if swap.overlap.len() > 3 {
+                files += &format!(" and {} more", swap.overlap.len() - 3);
+            }
+            this.notice = Some(
+                format!("The stash also changes {files}, so your changes were saved as stash@{{0}} first instead of being mixed in. Undo (⌘Z) brings them back.").into(),
+            );
+            this.record_undo(UndoEntry::stash_swap(label, swap));
+        });
     }
 
     pub fn undo(&mut self, cx: &mut Context<Self>) {

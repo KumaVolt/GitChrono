@@ -192,8 +192,8 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
             })
             .item(copy_item("Copy tag name", ws, name)),
         RefKind::Stash => menu
-            .item(item("Apply stash", ws, move |this, _, cx| this.run("Applying stash", Change::Refs, cx, move |r| r.stash_apply(index))))
-            .item(item("Pop stash", ws, move |this, _, cx| this.run("Popping stash", Change::Refs, cx, move |r| r.stash_pop(index))))
+            .item(item("Apply stash", ws, move |this, _, cx| this.apply_stash(index, false, cx)))
+            .item(item("Pop stash", ws, move |this, _, cx| this.apply_stash(index, true, cx)))
             .separator()
             .item(item("Drop stash…", ws, move |this, window, cx| {
                 this.confirm("Drop stash", format!("Permanently drop stash@{{{index}}}?"), "Drop", "Dropping", window, cx, move |r| {
