@@ -143,6 +143,9 @@ pub struct Workspace {
     pub file_multi: (bool, Vec<String>),
     /// Graph row whose ref labels are hovered: (label cell, the full list it opens).
     pub refs_hover: (Option<usize>, Option<usize>),
+    /// Graph row with a label's context menu open, and that menu. The menu is
+    /// drawn by its label, so the row's label list stays up until it closes.
+    pub refs_menu: Option<(usize, EntityId)>,
     /// Graph column width set by dragging its edge; `None` sizes it to the lanes.
     pub graph_width: Option<f32>,
     /// Re-render when a profile picture finishes downloading.
@@ -261,6 +264,7 @@ impl Workspace {
             graph_width: None,
             _avatars: cx.observe(&cx.global::<crate::avatars::AvatarStore>().0.clone(), |_, _, cx| cx.notify()),
             refs_hover: (None, None),
+            refs_menu: None,
             file_tree: std::env::var_os("GITCHRONO_FOLDERS").is_some(),
             collapsed_dirs: Default::default(),
             diff: None,

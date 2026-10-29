@@ -485,8 +485,20 @@ impl Repo {
         Ok(())
     }
 
-    pub fn push_tag(&self, name: &str) -> Result<()> {
-        self.git(&["push", "origin", &format!("refs/tags/{name}")]).map(drop)
+    pub fn remotes(&self) -> Result<Vec<String>> {
+        Ok(self.git(&["remote"])?.lines().map(str::to_string).collect())
+    }
+
+    /// Pushes tag `name` to `remote`, never forced: a remote that already has
+    /// the tag on another commit refuses it, and the error says so.
+    pub fn push_tag(&self, remote: &str, name: &str) -> Result<()> {
+        match self.git(&["push", remote, &format!("refs/tags/{name}")]) {
+            Ok(_) => Ok(()),
+            Err(e) if e.downcast_ref::<GitError>().is_some_and(|g| g.stderr.contains("already exists")) => {
+                bail!("{remote} already has a tag {name} on a different commit. Delete it there or rename yours to push it.")
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn delete_tag(&self, name: &str) -> Result<()> {

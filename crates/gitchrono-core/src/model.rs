@@ -66,6 +66,8 @@ pub struct Refs {
     pub remote: Vec<Branch>,
     pub tags: Vec<Tag>,
     pub stashes: Vec<Stash>,
+    /// Configured remote names, as `git remote` lists them.
+    pub remotes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
