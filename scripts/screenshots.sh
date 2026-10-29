@@ -41,6 +41,7 @@ printf '%s\n' "PROMPT='%1~ %F{8}›%f '" clear > "$home/.zshrc"
 # Window id of a process's main window, from CoreGraphics.
 cat > "$tmp/windowid.swift" <<'SWIFT'
 import CoreGraphics
+import Foundation // CF <-> Swift bridging; older SDKs don't pull it in via CoreGraphics
 let pid = Int32(CommandLine.arguments[1])!
 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 for w in windows where w[kCGWindowOwnerPID as String] as? Int32 == pid && w[kCGWindowLayer as String] as? Int == 0 {
