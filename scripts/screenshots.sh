@@ -22,7 +22,8 @@ trap '[ -z "$app" ] || kill "$app" 2>/dev/null; rm -rf "$tmp"' EXIT
 repos=$(scripts/demo-repos.sh "$tmp/repos" | tail -1)
 
 # A clean HOME with three repository tabs (after the pinned Home tab, so
-# "active": 1 is the first of them) and no update check.
+# "active": 1 is the first of them), no update check, and no profile pictures
+# (Gravatar's patterns would replace the graph's dots and the initials).
 home="$tmp/home"
 config="$home/Library/Application Support/gitchrono"
 mkdir -p "$config"
@@ -31,11 +32,13 @@ cat > "$config/session.json" <<JSON
   "tabs": ["$repos/aurora", "$repos/nebula-api", "$repos/orbit-docs"],
   "active": 1,
   "recent": ["$repos/aurora", "$repos/nebula-api", "$repos/orbit-docs"],
-  "auto_update": false
+  "auto_update": false,
+  "profile_pictures": false
 }
 JSON
 # The terminal's zsh reads its startup files from here: a short, fixed prompt,
-# and no "Last login" banner.
+# and no "Last login" banner. SHELL picks zsh even where the login shell is
+# bash (CI runners).
 printf '%s\n' "PROMPT='%1~ %F{8}›%f '" clear > "$home/.zshrc"
 
 # Window id of a process's main window, from CoreGraphics.
@@ -53,7 +56,7 @@ swiftc -O -o "$tmp/windowid" "$tmp/windowid.swift"
 
 shot() { # name [VAR=value...]
   local name=$1; shift
-  env HOME="$home" ZDOTDIR="$home" "$@" "$bin" > "$tmp/$name.log" 2>&1 &
+  env HOME="$home" ZDOTDIR="$home" SHELL=/bin/zsh "$@" "$bin" > "$tmp/$name.log" 2>&1 &
   app=$!
   local id=""
   for _ in $(seq 1 100); do
