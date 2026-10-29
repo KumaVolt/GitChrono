@@ -76,6 +76,7 @@ impl Repo {
     pub fn snapshot_filtered(&self, limit: usize, filter: &RefFilter) -> anyhow::Result<Snapshot> {
         let mut refs = self.refs()?;
         refs.stashes = self.stashes().unwrap_or_default();
+        refs.remotes = self.remotes().unwrap_or_default();
         self.tracking(&mut refs).ok();
         let commits = self.log(&filter.apply(&refs), limit)?;
         let status = self.status()?;

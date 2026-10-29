@@ -99,8 +99,18 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) ->
         .item(copy_item("Copy commit SHA", ws, id.clone()))
 }
 
-/// `filter`: (hidden, soloed) state of a branch in the graph.
-pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Option<&str>, index: usize, filter: (bool, bool)) -> PopupMenu {
+/// `filter`: (hidden, soloed) state of a branch in the graph; `remotes`: where a tag can be pushed.
+#[allow(clippy::too_many_arguments)]
+pub fn ref_menu(
+    menu: PopupMenu,
+    ws: &Ws,
+    name: &str,
+    kind: RefKind,
+    current: Option<&str>,
+    index: usize,
+    filter: (bool, bool),
+    remotes: &[String],
+) -> PopupMenu {
     let name = name.to_string();
     let is_branch = matches!(kind, RefKind::Local | RefKind::Remote) && current != Some(name.as_str());
     let menu = if is_branch {
@@ -179,18 +189,25 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
                 })
             })
             .item(copy_item("Copy branch name", ws, name)),
-        RefKind::Tag => menu
-            .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout(n)))
-            .item(op_item("Push tag to origin", "Pushing tag", Change::Refs, ws, name.clone(), |r, n| r.push_tag(n)))
-            .separator()
-            .item({
-                let name = name.clone();
-                item(format!("Delete tag {name}…"), ws, move |this, window, cx| {
-                    let n = name.clone();
-                    this.confirm("Delete tag", format!("Delete local tag {n}?"), "Delete", "Deleting", window, cx, move |r| r.delete_tag(&n));
+        RefKind::Tag => {
+            let mut menu = menu.item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout(n)));
+            for remote in remotes {
+                let (remote, tag) = (remote.clone(), name.clone());
+                menu = menu.item(item(format!("Push to {remote}"), ws, move |this, _, cx| {
+                    let (remote, tag) = (remote.clone(), tag.clone());
+                    this.run("Pushing tag", Change::Refs, cx, move |r| r.push_tag(&remote, &tag));
+                }));
+            }
+            menu.separator()
+                .item({
+                    let name = name.clone();
+                    item(format!("Delete tag {name}…"), ws, move |this, window, cx| {
+                        let n = name.clone();
+                        this.confirm("Delete tag", format!("Delete local tag {n}?"), "Delete", "Deleting", window, cx, move |r| r.delete_tag(&n));
+                    })
                 })
-            })
-            .item(copy_item("Copy tag name", ws, name)),
+                .item(copy_item("Copy tag name", ws, name))
+        }
         RefKind::Stash => menu
             .item(item("Apply stash", ws, move |this, _, cx| this.run("Applying stash", Change::Refs, cx, move |r| r.stash_apply(index))))
             .item(item("Pop stash", ws, move |this, _, cx| this.run("Popping stash", Change::Refs, cx, move |r| r.stash_pop(index))))

@@ -7,7 +7,7 @@ use gitchrono_graph::Row;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::Icon;
-use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::menu::{ContextMenu, ContextMenuExt as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
@@ -386,6 +386,7 @@ impl Workspace {
         let ws = cx.entity().downgrade();
         let current = self.status.branch.clone();
         let ref_filter = self.ref_filter.clone();
+        let remotes = refs.remotes.clone();
         let item = |id: SharedString, label: String, extra: String, target: String, is_current: bool, kind: RefKind, index: usize, cx: &mut Context<Self>| {
             let name = label.clone();
             let filter_state = (ref_filter.hidden.contains(&label), ref_filter.solo.contains(&label));
@@ -394,6 +395,7 @@ impl Workspace {
             let extra = if filter_state.1 { format!("solo {extra}") } else if !shown { format!("hidden {extra}") } else { extra };
             let ws = ws.clone();
             let current = current.clone();
+            let remotes = remotes.clone();
             div()
                 .id(id)
                 .px_3()
@@ -431,7 +433,7 @@ impl Workspace {
                     d.drag_over::<crate::drag::DraggedRef>(|s, _, _, _| s.bg(c(theme::SELECTED)))
                         .on_drop(cx.listener(move |this, dragged: &crate::drag::DraggedRef, _, cx| this.drop_ref(dragged, target.clone(), cx)))
                 })
-                .context_menu(move |menu, _, _| menus::ref_menu(menu, &ws, &name, kind, current.as_deref(), index, filter_state))
+                .context_menu(move |menu, _, _| menus::ref_menu(menu, &ws, &name, kind, current.as_deref(), index, filter_state, &remotes))
         };
 
         let mut col = div()
@@ -732,21 +734,55 @@ impl Workspace {
         )
     }
 
-    /// A ref label in the graph that checks out its branch on double-click.
+    /// A ref label in graph row `row` that checks out its branch on double-click
+    /// and has the sidebar's menu on right-click.
     /// `shown` may differ from `target` (a local branch with its remote folded in).
-    fn ref_chip_as(&self, id: ElementId, target: &RefLabel, shown: &RefLabel, color: Hsla, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn ref_chip_as(&self, id: ElementId, row: usize, target: &RefLabel, shown: &RefLabel, color: Hsla, cx: &mut Context<Self>) -> ContextMenu<Stateful<Div>> {
         let (name, kind) = (target.name.clone(), target.kind);
-        ref_badge(shown, color).id(id).cursor_pointer().on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
-            if ev.click_count() < 2 {
-                return;
-            }
-            let t = name.clone();
-            match kind {
-                RefKind::Local => this.run("Checking out", Change::Refs, cx, move |r| r.checkout(&t)),
-                RefKind::Remote => this.run("Checking out", Change::Refs, cx, move |r| r.checkout_remote(&t)),
-                _ => {}
-            }
-        }))
+        let ws = cx.entity().downgrade();
+        let current = self.status.branch.clone();
+        let filter_state = (self.ref_filter.hidden.contains(&name), self.ref_filter.solo.contains(&name));
+        let stash = name.strip_prefix("stash@{").and_then(|n| n.strip_suffix('}')).and_then(|n| n.parse().ok()).unwrap_or(0);
+        let menu_name = name.clone();
+        let remotes = self.snap.refs.remotes.clone();
+        ref_badge(shown, color)
+            .id(id)
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+                if ev.click_count() < 2 {
+                    return;
+                }
+                let t = name.clone();
+                match kind {
+                    RefKind::Local => this.run("Checking out", Change::Refs, cx, move |r| r.checkout(&t)),
+                    RefKind::Remote => this.run("Checking out", Change::Refs, cx, move |r| r.checkout_remote(&t)),
+                    _ => {}
+                }
+            }))
+            .context_menu(move |menu, _, cx| {
+                // Keep the row's label list (which draws this menu) up while the
+                // menu is open, then close it with the menu.
+                let menu_id = cx.entity_id();
+                ws.update(cx, |this, cx| {
+                    this.refs_menu = Some((row, menu_id));
+                    cx.notify();
+                })
+                .ok();
+                let on_dismiss = ws.clone();
+                cx.subscribe_self(move |_, _: &DismissEvent, cx| {
+                    on_dismiss
+                        .update(cx, |this, cx| {
+                            if this.refs_menu.is_some_and(|(_, m)| m == menu_id) {
+                                this.refs_menu = None;
+                                this.refs_hover = (None, None);
+                                cx.notify();
+                            }
+                        })
+                        .ok();
+                })
+                .detach();
+                menus::ref_menu(menu, &ws, &menu_name, kind, current.as_deref(), stash, filter_state, &remotes)
+            })
     }
 
     fn render_row(&self, row: usize, gutter: Pixels, cx: &mut Context<Self>) -> AnyElement {
@@ -831,7 +867,7 @@ impl Workspace {
                     }))
                     // Hovering a row's labels lists all of them on top of the rows below;
                     // the list stays open while the pointer is on it.
-                    .when(commit.refs.len() > 1 && (self.refs_hover.0 == Some(row) || self.refs_hover.1 == Some(row)), |d| {
+                    .when(commit.refs.len() > 1 && (self.refs_hover.0 == Some(row) || self.refs_hover.1 == Some(row) || self.refs_menu.is_some_and(|(r, _)| r == row)), |d| {
                         let mut refs = commit.refs.clone();
                         if let Some((primary, _)) = primary_ref(&commit.refs) {
                             let name = primary.name.trim_end_matches(" ☁").to_string();
@@ -856,14 +892,14 @@ impl Workspace {
                                         this.refs_hover.1 = if *hovered { Some(row) } else { this.refs_hover.1.filter(|r| *r != row) };
                                         cx.notify();
                                     }))
-                                    .children(refs.iter().enumerate().map(|(i, r)| self.ref_chip_as(("ref-in-list", row * 64 + i).into(), r, r, color, cx))),
+                                    .children(refs.iter().enumerate().map(|(i, r)| self.ref_chip_as(("ref-in-list", row * 64 + i).into(), row, r, r, color, cx))),
                             ),
                         )))
                     })
                     .when_some(primary_ref(&commit.refs), |d, (primary, rest)| {
                         let name = primary.name.trim_end_matches(" ☁");
                         let real = commit.refs.iter().find(|r| r.name == name && r.kind == primary.kind).cloned().unwrap_or_else(|| primary.clone());
-                        d.child(self.ref_chip_as(("ref", row).into(), &real, &primary, color, cx)).when(rest > 0, |d| {
+                        d.child(self.ref_chip_as(("ref", row).into(), row, &real, &primary, color, cx)).when(rest > 0, |d| {
                             d.child(
                                 div()
                                     .flex_none()
