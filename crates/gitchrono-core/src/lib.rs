@@ -4,6 +4,7 @@
 //! gitoxide; writes and porcelain-exact reads shell out to `git` (see `cli`).
 
 mod cli;
+mod clone;
 mod conflict;
 mod diff;
 mod model;
@@ -16,6 +17,7 @@ mod undo;
 
 pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};
 pub use cli::{GitError, ResetMode, git};
+pub use clone::{clone_repo, repo_name_from_url};
 pub use diff::{ApplyMode, parse_patch, partial_patch};
 pub use model::*;
 pub use rebase::{RebaseAction, RebaseStep};

@@ -88,6 +88,8 @@ pub struct Prompt {
 pub enum WorkspaceEvent {
     /// The user asked to open another repository (handled by the tab shell).
     OpenRequested,
+    /// The user asked to clone a repository (the shell shows the dialog).
+    CloneRequested,
     /// Open this repository or worktree in a tab.
     OpenPath(PathBuf),
     /// A linked worktree was removed; its tab should close.

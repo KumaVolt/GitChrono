@@ -1595,10 +1595,16 @@ impl Workspace {
             .child(div().text_3xl().font_weight(FontWeight::BOLD).child("GitChrono"))
             .child(div().text_color(c(theme::MUTED)).child(concat!("A fast, native Git client · v", env!("CARGO_PKG_VERSION"))))
             .child(
-                Button::new("welcome-open")
-                    .label("Open Repository…")
-                    .primary()
-                    .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        Button::new("welcome-open")
+                            .label("Open Repository…")
+                            .primary()
+                            .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
+                    )
+                    .child(Button::new("welcome-clone").label("Clone…").on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::CloneRequested)))),
             )
             .when_some(self.error.clone(), |d, e| d.child(div().text_sm().text_color(c(theme::DEL)).child(e)))
     }

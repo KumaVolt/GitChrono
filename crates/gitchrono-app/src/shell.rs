@@ -60,6 +60,7 @@ pub struct Shell {
     pub(crate) settings: Option<crate::settings::Settings>,
     pub(crate) update: crate::footer::UpdateState,
     pub(crate) about: Option<crate::footer::About>,
+    pub(crate) clone_dialog: Option<crate::clone_ui::CloneDialog>,
     /// Whether a usable git was found; without one the help page replaces the tabs.
     pub(crate) git: GitCheck,
     /// The repository to open once git is available (from the command line).
@@ -85,6 +86,8 @@ impl Shell {
             if event.keystroke.key == "escape" {
                 if this.palette.is_some() {
                     this.close_palette(cx);
+                } else if this.clone_dialog.is_some() {
+                    this.close_clone(cx);
                 } else if this.about.is_some() {
                     this.about = None;
                     cx.notify();
@@ -97,7 +100,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);
@@ -110,6 +113,10 @@ impl Shell {
         // `GITCHRONO_SETTINGS=1`: open the settings page on launch (screenshots).
         if std::env::var_os("GITCHRONO_SETTINGS").is_some() {
             this.open_settings(this.active_repo_path(), window, cx);
+        }
+        // `GITCHRONO_CLONE=<url>`: open the clone dialog with the URL filled in (screenshots).
+        if let Ok(url) = std::env::var("GITCHRONO_CLONE") {
+            this.open_clone_with(&url, window, cx);
         }
         this
     }
@@ -147,6 +154,7 @@ impl Shell {
         let view = cx.new(|cx| Workspace::new(Some(open), window, cx));
         let sub = cx.subscribe_in(&view, window, |this, _, event: &WorkspaceEvent, window, cx| match event {
             WorkspaceEvent::OpenRequested => this.prompt_open(window, cx),
+            WorkspaceEvent::CloneRequested => this.open_clone(window, cx),
             WorkspaceEvent::OpenPath(path) => this.open_path(path.clone(), window, cx),
             WorkspaceEvent::WorktreeRemoved(path) => {
                 let gone = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -631,7 +639,7 @@ impl Shell {
             )
             .child(
                 div().mt_1().text_sm().text_color(c(theme::MUTED)).child(
-                    "Pick a repository, or a parent folder: GitChrono finds every repository inside it and keeps the folder here.",
+                    "Pick a repository, or a parent folder: GitChrono finds every repository inside it and keeps the folder here. Or clone one from a URL.",
                 ),
             )
             .child(
@@ -645,6 +653,7 @@ impl Shell {
                             .primary()
                             .on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))),
                     )
+                    .child(Button::new("home-clone").label("Clone…").on_click(cx.listener(|this, _, window, cx| this.open_clone(window, cx))))
                     .child(div().flex_1().child(Input::new(&self.filter))),
             );
 
@@ -770,5 +779,6 @@ impl Render for Shell {
             .child(self.render_footer(cx))
             .children(self.render_palette(cx))
             .children(self.render_about(cx))
+            .children(self.render_clone(cx))
     }
 }
