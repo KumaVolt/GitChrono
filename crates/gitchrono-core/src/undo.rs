@@ -1,7 +1,8 @@
 //! Undo / redo for any operation: snapshot the local refs before and after,
 //! and move the repository from one snapshot back to the other.
 //!
-//! Only refs move. The working tree is never overwritten: undoing a commit is
+//! Only refs move (and the stash swap in `stash`, which checks the files
+//! are exactly as it left them). The working tree is never overwritten: undoing a commit is
 //! a soft reset (changes come back staged) and every other HEAD move uses
 //! `reset --keep` / `checkout`, which refuse to clobber local changes.
 
@@ -10,6 +11,7 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 
 use crate::repo::Repo;
+use crate::stash::StashSwap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RefState {
@@ -34,11 +36,18 @@ pub struct UndoEntry {
     pub after: RefState,
     /// A commit or amend: undo is a soft reset, so its changes come back staged.
     pub soft: bool,
+    /// Applying a stash that collided with uncommitted changes (no ref moves).
+    pub stash: Option<StashSwap>,
 }
 
 impl UndoEntry {
     pub fn new(label: &str, before: RefState, after: RefState, soft: bool) -> Option<Self> {
-        (before != after).then(|| Self { label: label.to_string(), before, after, soft })
+        (before != after).then(|| Self { label: label.to_string(), before, after, soft, stash: None })
+    }
+
+    pub fn stash_swap(label: &str, swap: StashSwap) -> Self {
+        let refs = swap.refs.clone();
+        Self { label: label.to_string(), before: refs.clone(), after: refs, soft: false, stash: Some(swap) }
     }
 }
 
@@ -66,10 +75,16 @@ impl Repo {
     }
 
     pub fn undo(&self, entry: &UndoEntry) -> Result<()> {
+        if let Some(swap) = &entry.stash {
+            return self.undo_stash_swap(swap);
+        }
         self.move_refs(&entry.after, &entry.before, entry.soft)
     }
 
     pub fn redo(&self, entry: &UndoEntry) -> Result<()> {
+        if let Some(swap) = &entry.stash {
+            return self.redo_stash_swap(swap);
+        }
         self.move_refs(&entry.before, &entry.after, entry.soft)
     }
 

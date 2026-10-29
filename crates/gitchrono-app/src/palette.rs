@@ -160,7 +160,7 @@ impl Shell {
                 repo_action("Create branch…", |ws, w, cx| ws.prompt_create_branch(w, cx)),
                 repo_action("Stash changes…", |ws, w, cx| ws.prompt_stash(w, cx)),
                 repo_action("Create worktree…", |ws, w, cx| ws.prompt_new_worktree(w, cx)),
-                git_op("Pop stash", "Popping stash", Change::Refs, |r| r.stash_pop(0)),
+                repo_action("Pop stash", |ws, _, cx| ws.apply_stash(0, true, cx)),
                 git_op("Stage all changes", "Staging", Change::Status, |r| r.stage_all()),
                 git_op("Unstage all changes", "Unstaging", Change::Status, |r| r.unstage_all()),
                 repo_action("Search commits", |ws, w, cx| ws.open_search(w, cx)).detail("⌘F"),

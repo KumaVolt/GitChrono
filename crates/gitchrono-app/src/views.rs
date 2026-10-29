@@ -293,7 +293,7 @@ impl Workspace {
                 .child(tool("branch", ToolIcon::Branch, "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
                 .child(tool("stash", ToolIcon::Stash, "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
                 .child(tool("pop", ToolIcon::Pop, "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
-                    |this, _, _, cx| this.run("Popping stash", Change::Refs, cx, |r| r.stash_pop(0)),
+                    |this, _, _, cx| this.apply_stash(0, true, cx),
                 )))
                 .child(div().mx_1().w_px().h(px(32.)).bg(c(theme::BORDER)))
                 .child(tool("terminal", ToolIcon::Terminal, "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
@@ -327,6 +327,26 @@ impl Workspace {
                         .child(Button::new("pull-and-push").label("Pull and push").primary().xsmall().on_click(cx.listener(|this, _, _, cx| this.pull_and_push(cx))))
                         .child(Button::new("push-behind-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                             this.push_behind = None;
+                            cx.notify();
+                        }))),
+                )
+            })
+            .when_some(self.notice.clone(), |d, text| {
+                d.child(
+                    div()
+                        .id("notice")
+                        .px_3()
+                        .py_2()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .bg(c(theme::ACCENT).opacity(0.12))
+                        .border_b_1()
+                        .border_color(c(theme::ACCENT))
+                        .text_xs()
+                        .child(div().flex_1().child(text))
+                        .child(Button::new("notice-dismiss").label("Dismiss").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                            this.notice = None;
                             cx.notify();
                         }))),
                 )
