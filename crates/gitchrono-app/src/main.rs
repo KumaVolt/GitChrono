@@ -1,5 +1,6 @@
 mod ai;
 mod avatars;
+mod clone_ui;
 mod conflict_ui;
 mod diff_view;
 mod drag;
