@@ -25,9 +25,10 @@ pub struct Session {
     #[serde(default)]
     pub collapsed: Vec<PathBuf>,
     /// Repositories removed from a project folder's list, by folder. They stay
-    /// on disk; rescans skip them.
-    #[serde(default)]
-    pub hidden: std::collections::BTreeMap<PathBuf, Vec<PathBuf>>,
+    /// on disk; rescans skip them. Saved as `"hidden"`, its name from when they
+    /// could be shown again, so older versions agree on what's removed.
+    #[serde(default, rename = "hidden")]
+    pub removed: std::collections::BTreeMap<PathBuf, Vec<PathBuf>>,
     /// Show authors' profile pictures (Gravatar, which gets hashed emails);
     /// `None` means on. A new key: sessions saved before it was on by default
     /// all carry `"gravatar": false`, which is dropped.
@@ -77,17 +78,15 @@ impl Session {
         self.recent.retain(|p| p != repo);
     }
 
-    pub fn is_hidden(&self, folder: &Path, repo: &Path) -> bool {
-        self.hidden.get(folder).is_some_and(|h| h.iter().any(|p| p == repo))
+    pub fn is_removed(&self, folder: &Path, repo: &Path) -> bool {
+        self.removed.get(folder).is_some_and(|r| r.iter().any(|p| p == repo))
     }
 
-    pub fn set_hidden(&mut self, folder: &Path, repo: &Path, hidden: bool) {
-        let list = self.hidden.entry(folder.to_path_buf()).or_default();
-        list.retain(|p| p != repo);
-        if hidden {
+    /// Drops a repository from a project folder's list; nothing on disk changes.
+    pub fn remove_from_folder(&mut self, folder: &Path, repo: &Path) {
+        let list = self.removed.entry(folder.to_path_buf()).or_default();
+        if !list.iter().any(|p| p == repo) {
             list.push(repo.to_path_buf());
-        } else if list.is_empty() {
-            self.hidden.remove(folder);
         }
     }
 
@@ -250,17 +249,22 @@ mod tests {
     }
 
     #[test]
-    fn hidden_repos_are_per_folder_and_survive_a_round_trip() {
+    fn removed_repos_are_per_folder_and_survive_a_round_trip() {
         let mut s = Session::default();
-        s.set_hidden(Path::new("/f"), Path::new("/f/a"), true);
-        s.set_hidden(Path::new("/f"), Path::new("/f/a"), true);
-        assert_eq!(s.hidden[Path::new("/f")].len(), 1);
-        assert!(s.is_hidden(Path::new("/f"), Path::new("/f/a")));
-        assert!(!s.is_hidden(Path::new("/g"), Path::new("/f/a")));
+        s.remove_from_folder(Path::new("/f"), Path::new("/f/a"));
+        s.remove_from_folder(Path::new("/f"), Path::new("/f/a"));
+        assert_eq!(s.removed[Path::new("/f")].len(), 1);
+        assert!(s.is_removed(Path::new("/f"), Path::new("/f/a")));
+        assert!(!s.is_removed(Path::new("/g"), Path::new("/f/a")));
         let back: Session = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
-        s.set_hidden(Path::new("/f"), Path::new("/f/a"), false);
-        assert!(s.hidden.is_empty());
+    }
+
+    #[test]
+    fn repos_hidden_by_older_versions_stay_removed() {
+        let old: Session = serde_json::from_str(r#"{"hidden": {"/f": ["/f/a"]}}"#).unwrap();
+        assert!(old.is_removed(Path::new("/f"), Path::new("/f/a")));
+        assert!(serde_json::to_string(&old).unwrap().contains(r#""hidden":{"/f":["/f/a"]}"#));
     }
 
     #[test]

@@ -53,10 +53,8 @@ pub(crate) fn logo() -> std::sync::Arc<Image> {
 enum RowRemove {
     /// Forget it from Recent.
     Recent,
-    /// Hide it from this project folder's list.
-    Hide(PathBuf),
-    /// It's hidden from this folder and shown only on request: bring it back.
-    Restore(PathBuf),
+    /// Remove it from this project folder's list.
+    Folder(PathBuf),
 }
 
 type ConfirmAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
@@ -89,8 +87,6 @@ pub struct Shell {
     pub(crate) session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
-    /// Project folders whose hidden repositories are listed (dimmed) for restoring.
-    show_hidden: Vec<PathBuf>,
     pub(crate) confirm: Option<Confirm>,
     /// Branch and status of each repository listed on the new-tab page.
     summaries: HashMap<PathBuf, Result<RepoSummary, SharedString>>,
@@ -129,7 +125,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), show_hidden: Vec::new(), confirm: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);
@@ -369,7 +365,7 @@ impl Shell {
     pub(crate) fn known_repos(&self) -> Vec<PathBuf> {
         let open: Vec<PathBuf> = self.tab_entries().into_iter().map(|(_, p)| p).collect();
         let mut out: Vec<PathBuf> = Vec::new();
-        let scanned = self.scans.iter().flat_map(|(folder, repos)| repos.iter().filter(|p| !self.session.is_hidden(folder, p)));
+        let scanned = self.scans.iter().flat_map(|(folder, repos)| repos.iter().filter(|p| !self.session.is_removed(folder, p)));
         for path in self.session.recent.iter().chain(scanned) {
             if !open.contains(path) && !out.contains(path) {
                 out.push(path.clone());
@@ -386,8 +382,7 @@ impl Shell {
     fn remove_folder(&mut self, folder: &PathBuf, cx: &mut Context<Self>) {
         self.session.folders.retain(|f| f != folder);
         self.session.collapsed.retain(|f| f != folder);
-        self.session.hidden.remove(folder);
-        self.show_hidden.retain(|f| f != folder);
+        self.session.removed.remove(folder);
         self.scans.remove(folder);
         self.save_session();
         cx.notify();
@@ -414,19 +409,9 @@ impl Shell {
     fn remove_row(&mut self, path: &std::path::Path, how: &RowRemove, cx: &mut Context<Self>) {
         match how {
             RowRemove::Recent => self.session.forget_recent(path),
-            RowRemove::Hide(folder) => self.session.set_hidden(folder, path, true),
-            RowRemove::Restore(folder) => self.session.set_hidden(folder, path, false),
+            RowRemove::Folder(folder) => self.session.remove_from_folder(folder, path),
         }
         self.save_session();
-        cx.notify();
-    }
-
-    fn toggle_show_hidden(&mut self, folder: &PathBuf, cx: &mut Context<Self>) {
-        if let Some(i) = self.show_hidden.iter().position(|f| f == folder) {
-            self.show_hidden.remove(i);
-        } else {
-            self.show_hidden.push(folder.clone());
-        }
         cx.notify();
     }
 
@@ -633,14 +618,12 @@ impl Shell {
 
     fn repo_row(&self, id: SharedString, path: &PathBuf, base: Option<&PathBuf>, remove: RowRemove, cx: &mut Context<Self>) -> impl IntoElement {
         let open = path.clone();
-        let restore = matches!(remove, RowRemove::Restore(_));
         let (target, tooltip) = (path.clone(), match remove {
             RowRemove::Recent => "Remove from Recent",
-            RowRemove::Hide(_) => "Hide from this folder's list (nothing is deleted)",
-            RowRemove::Restore(_) => "Show in this folder's list again",
+            RowRemove::Folder(_) => "Remove from this folder's list (nothing is deleted)",
         });
         let remove_button = Button::new("row-remove")
-            .label(if restore { "restore" } else { "×" })
+            .label("×")
             .xsmall()
             .ghost()
             .tooltip(tooltip)
@@ -666,7 +649,6 @@ impl Shell {
             .group("repo-row")
             .cursor_pointer()
             .hover(|d| d.bg(c(theme::HOVER)))
-            .when(restore, |d| d.text_color(c(theme::FAINT)))
             .child(div().size(px(6.)).rounded_full().bg(c(if is_open { theme::ACCENT } else { theme::FAINT })))
             .child(div().w(px(170.)).flex_none().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(projects::display_name(path)))
             .child(
@@ -683,8 +665,8 @@ impl Shell {
             .when(is_open, |d| {
                 d.child(div().px_1p5().rounded_sm().bg(c(theme::SELECTED)).text_xs().text_color(c(theme::ACCENT)).child("open"))
             })
-            // Shown on hover only, except for hidden rows being restored.
-            .child(div().flex_none().when(!restore, |d| d.opacity(0.).group_hover("repo-row", |s| s.opacity(1.))).child(remove_button))
+            // Shown on hover only.
+            .child(div().flex_none().opacity(0.).group_hover("repo-row", |s| s.opacity(1.)).child(remove_button))
             .on_click(cx.listener(move |this, _, window, cx| this.open_path(open.clone(), window, cx)))
     }
 
@@ -784,11 +766,9 @@ impl Shell {
 
         for (fi, folder) in self.session.folders.iter().enumerate() {
             let scanned = self.scans.get(folder);
-            let (hidden, repos): (Vec<&PathBuf>, Vec<&PathBuf>) = scanned.into_iter().flatten().partition(|p| self.session.is_hidden(folder, p));
-            let revealing = !hidden.is_empty() && self.show_hidden.contains(folder);
+            let repos: Vec<&PathBuf> = scanned.into_iter().flatten().filter(|p| !self.session.is_removed(folder, p)).collect();
             let shown: Vec<&PathBuf> = repos.iter().copied().filter(|p| matches(p)).collect();
-            let shown_hidden: Vec<&PathBuf> = if revealing { hidden.iter().copied().filter(|p| matches(p)).collect() } else { Vec::new() };
-            if filtering && scanned.is_some() && shown.is_empty() && shown_hidden.is_empty() {
+            if filtering && scanned.is_some() && shown.is_empty() {
                 continue;
             }
             let count = match scanned {
@@ -797,23 +777,8 @@ impl Shell {
                 Some(_) => format!("{} {}", repos.len(), if repos.len() == 1 { "repository" } else { "repositories" }),
             };
             let remove = folder.clone();
-            let reveal = folder.clone();
             let open_all: Vec<PathBuf> = shown.iter().map(|p| (*p).clone()).collect();
-            let mut actions = Vec::new();
-            if !hidden.is_empty() {
-                actions.push(
-                    Button::new(("folder-hidden", fi))
-                        .label(format!("{} hidden · {}", hidden.len(), if revealing { "hide" } else { "show" }))
-                        .xsmall()
-                        .ghost()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.toggle_show_hidden(&reveal, cx);
-                        }))
-                        .into_any_element(),
-                );
-            }
-            actions.extend([
+            let actions = vec![
                 Button::new(("folder-open-all", fi))
                     .label("Open all")
                     .xsmall()
@@ -840,13 +805,11 @@ impl Shell {
                         this.confirm_remove_folder(remove.clone(), cx);
                     }))
                     .into_any_element(),
-            ]);
+            ];
             let rows = shown
                 .iter()
-                .map(|path| (path, RowRemove::Hide(folder.clone())))
-                .chain(shown_hidden.iter().map(|path| (path, RowRemove::Restore(folder.clone()))))
                 .enumerate()
-                .map(|(ri, (path, how))| self.repo_row(format!("folder-{fi}-{ri}").into(), path, Some(folder), how, cx).into_any_element())
+                .map(|(ri, path)| self.repo_row(format!("folder-{fi}-{ri}").into(), path, Some(folder), RowRemove::Folder(folder.clone()), cx).into_any_element())
                 .collect();
             body = body.child(self.group(
                 format!("group-folder-{fi}").into(),
