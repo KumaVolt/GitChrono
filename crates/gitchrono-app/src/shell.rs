@@ -48,6 +48,26 @@ pub(crate) fn logo() -> std::sync::Arc<Image> {
         .clone()
 }
 
+/// What a home-tab row's trailing button does.
+enum RowRemove {
+    /// Forget it from Recent.
+    Recent,
+    /// Hide it from this project folder's list.
+    Hide(PathBuf),
+    /// It's hidden from this folder and shown only on request: bring it back.
+    Restore(PathBuf),
+}
+
+type ConfirmAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
+
+/// A yes/no question on the home tab (same look as the workspace prompt).
+pub(crate) struct Confirm {
+    title: SharedString,
+    message: SharedString,
+    confirm: SharedString,
+    action: ConfirmAction,
+}
+
 enum Tab {
     Home,
     Repo { path: PathBuf, view: Entity<Workspace>, _sub: Subscription },
@@ -67,6 +87,9 @@ pub struct Shell {
     pub(crate) session: Session,
     /// Repositories found in each project folder.
     scans: HashMap<PathBuf, Vec<PathBuf>>,
+    /// Project folders whose hidden repositories are listed (dimmed) for restoring.
+    show_hidden: Vec<PathBuf>,
+    pub(crate) confirm: Option<Confirm>,
     /// Branch and status of each repository listed on the new-tab page.
     summaries: HashMap<PathBuf, Result<RepoSummary, SharedString>>,
     filter: Entity<InputState>,
@@ -83,7 +106,10 @@ impl Shell {
         // Escape closes overlays even when a text input consumed the key.
         let keystrokes = cx.observe_keystrokes(|this: &mut Self, event, _, cx| {
             if event.keystroke.key == "escape" {
-                if this.palette.is_some() {
+                if this.confirm.is_some() {
+                    this.confirm = None;
+                    cx.notify();
+                } else if this.palette.is_some() {
                     this.close_palette(cx);
                 } else if this.about.is_some() {
                     this.about = None;
@@ -97,7 +123,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), show_hidden: Vec::new(), confirm: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);
@@ -289,7 +315,8 @@ impl Shell {
     pub(crate) fn known_repos(&self) -> Vec<PathBuf> {
         let open: Vec<PathBuf> = self.tab_entries().into_iter().map(|(_, p)| p).collect();
         let mut out: Vec<PathBuf> = Vec::new();
-        for path in self.session.recent.iter().chain(self.scans.values().flatten()) {
+        let scanned = self.scans.iter().flat_map(|(folder, repos)| repos.iter().filter(|p| !self.session.is_hidden(folder, p)));
+        for path in self.session.recent.iter().chain(scanned) {
             if !open.contains(path) && !out.contains(path) {
                 out.push(path.clone());
             }
@@ -305,8 +332,47 @@ impl Shell {
     fn remove_folder(&mut self, folder: &PathBuf, cx: &mut Context<Self>) {
         self.session.folders.retain(|f| f != folder);
         self.session.collapsed.retain(|f| f != folder);
+        self.session.hidden.remove(folder);
+        self.show_hidden.retain(|f| f != folder);
         self.scans.remove(folder);
         self.save_session();
+        cx.notify();
+    }
+
+    fn confirm_remove_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        self.confirm = Some(Confirm {
+            title: "Remove folder".into(),
+            message: format!("Remove {} from GitChrono? The repositories stay on disk.", projects::display_name(&folder)).into(),
+            confirm: "Remove".into(),
+            action: Box::new(move |this, cx| this.remove_folder(&folder, cx)),
+        });
+        cx.notify();
+    }
+
+    fn submit_confirm(&mut self, cx: &mut Context<Self>) {
+        if let Some(confirm) = self.confirm.take() {
+            (confirm.action)(self, cx);
+        }
+        cx.notify();
+    }
+
+    /// Takes a repository off the home tab; nothing on disk changes.
+    fn remove_row(&mut self, path: &std::path::Path, how: &RowRemove, cx: &mut Context<Self>) {
+        match how {
+            RowRemove::Recent => self.session.forget_recent(path),
+            RowRemove::Hide(folder) => self.session.set_hidden(folder, path, true),
+            RowRemove::Restore(folder) => self.session.set_hidden(folder, path, false),
+        }
+        self.save_session();
+        cx.notify();
+    }
+
+    fn toggle_show_hidden(&mut self, folder: &PathBuf, cx: &mut Context<Self>) {
+        if let Some(i) = self.show_hidden.iter().position(|f| f == folder) {
+            self.show_hidden.remove(i);
+        } else {
+            self.show_hidden.push(folder.clone());
+        }
         cx.notify();
     }
 
@@ -511,8 +577,23 @@ impl Shell {
         }
     }
 
-    fn repo_row(&self, id: SharedString, path: &PathBuf, base: Option<&PathBuf>, cx: &mut Context<Self>) -> impl IntoElement {
+    fn repo_row(&self, id: SharedString, path: &PathBuf, base: Option<&PathBuf>, remove: RowRemove, cx: &mut Context<Self>) -> impl IntoElement {
         let open = path.clone();
+        let restore = matches!(remove, RowRemove::Restore(_));
+        let (target, tooltip) = (path.clone(), match remove {
+            RowRemove::Recent => "Remove from Recent",
+            RowRemove::Hide(_) => "Hide from this folder's list (nothing is deleted)",
+            RowRemove::Restore(_) => "Show in this folder's list again",
+        });
+        let remove_button = Button::new("row-remove")
+            .label(if restore { "restore" } else { "×" })
+            .xsmall()
+            .ghost()
+            .tooltip(tooltip)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.remove_row(&target, &remove, cx);
+            }));
         let is_open = self.tabs.iter().any(|t| matches!(t, Tab::Repo { path: p, .. } if p == path));
         let hint = match base {
             Some(base) => path.parent().filter(|parent| parent != base).and_then(|parent| parent.strip_prefix(base).ok()).map(|rel| rel.display().to_string()),
@@ -528,8 +609,10 @@ impl Shell {
             .px_3()
             .border_t_1()
             .border_color(c(theme::BORDER))
+            .group("repo-row")
             .cursor_pointer()
             .hover(|d| d.bg(c(theme::HOVER)))
+            .when(restore, |d| d.text_color(c(theme::FAINT)))
             .child(div().size(px(6.)).rounded_full().bg(c(if is_open { theme::ACCENT } else { theme::FAINT })))
             .child(div().w(px(170.)).flex_none().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(projects::display_name(path)))
             .child(
@@ -546,6 +629,8 @@ impl Shell {
             .when(is_open, |d| {
                 d.child(div().px_1p5().rounded_sm().bg(c(theme::SELECTED)).text_xs().text_color(c(theme::ACCENT)).child("open"))
             })
+            // Shown on hover only, except for hidden rows being restored.
+            .child(div().flex_none().when(!restore, |d| d.opacity(0.).group_hover("repo-row", |s| s.opacity(1.))).child(remove_button))
             .on_click(cx.listener(move |this, _, window, cx| this.open_path(open.clone(), window, cx)))
     }
 
@@ -632,24 +717,42 @@ impl Shell {
         if !recent.is_empty() {
             let key = PathBuf::new();
             let collapsed = is_collapsed(&key);
-            let rows = recent.iter().enumerate().map(|(i, path)| self.repo_row(format!("recent-{i}").into(), path, None, cx).into_any_element()).collect();
+            let rows = recent.iter().enumerate().map(|(i, path)| self.repo_row(format!("recent-{i}").into(), path, None, RowRemove::Recent, cx).into_any_element()).collect();
             body = body.child(self.group("group-recent".into(), key, collapsed, "Recent".into(), format!("{}", recent.len()), Vec::new(), rows, cx));
         }
 
         for (fi, folder) in self.session.folders.iter().enumerate() {
-            let repos = self.scans.get(folder);
-            let shown: Vec<&PathBuf> = repos.map(|r| r.iter().filter(|p| matches(p)).collect()).unwrap_or_default();
-            if filtering && repos.is_some() && shown.is_empty() {
+            let scanned = self.scans.get(folder);
+            let (hidden, repos): (Vec<&PathBuf>, Vec<&PathBuf>) = scanned.into_iter().flatten().partition(|p| self.session.is_hidden(folder, p));
+            let revealing = !hidden.is_empty() && self.show_hidden.contains(folder);
+            let shown: Vec<&PathBuf> = repos.iter().copied().filter(|p| matches(p)).collect();
+            let shown_hidden: Vec<&PathBuf> = if revealing { hidden.iter().copied().filter(|p| matches(p)).collect() } else { Vec::new() };
+            if filtering && scanned.is_some() && shown.is_empty() && shown_hidden.is_empty() {
                 continue;
             }
-            let count = match repos {
+            let count = match scanned {
                 None => "scanning…".to_string(),
-                Some(r) if filtering => format!("{} of {}", shown.len(), r.len()),
-                Some(r) => format!("{} {}", r.len(), if r.len() == 1 { "repository" } else { "repositories" }),
+                Some(_) if filtering => format!("{} of {}", shown.len(), repos.len()),
+                Some(_) => format!("{} {}", repos.len(), if repos.len() == 1 { "repository" } else { "repositories" }),
             };
             let remove = folder.clone();
+            let reveal = folder.clone();
             let open_all: Vec<PathBuf> = shown.iter().map(|p| (*p).clone()).collect();
-            let actions = vec![
+            let mut actions = Vec::new();
+            if !hidden.is_empty() {
+                actions.push(
+                    Button::new(("folder-hidden", fi))
+                        .label(format!("{} hidden · {}", hidden.len(), if revealing { "hide" } else { "show" }))
+                        .xsmall()
+                        .ghost()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.toggle_show_hidden(&reveal, cx);
+                        }))
+                        .into_any_element(),
+                );
+            }
+            actions.extend([
                 Button::new(("folder-open-all", fi))
                     .label("Open all")
                     .xsmall()
@@ -673,11 +776,17 @@ impl Shell {
                     .ghost()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.remove_folder(&remove, cx);
+                        this.confirm_remove_folder(remove.clone(), cx);
                     }))
                     .into_any_element(),
-            ];
-            let rows = shown.iter().enumerate().map(|(ri, path)| self.repo_row(format!("folder-{fi}-{ri}").into(), path, Some(folder), cx).into_any_element()).collect();
+            ]);
+            let rows = shown
+                .iter()
+                .map(|path| (path, RowRemove::Hide(folder.clone())))
+                .chain(shown_hidden.iter().map(|path| (path, RowRemove::Restore(folder.clone()))))
+                .enumerate()
+                .map(|(ri, (path, how))| self.repo_row(format!("folder-{fi}-{ri}").into(), path, Some(folder), how, cx).into_any_element())
+                .collect();
             body = body.child(self.group(
                 format!("group-folder-{fi}").into(),
                 folder.clone(),
@@ -691,6 +800,57 @@ impl Shell {
         }
 
         div().id("home").size_full().overflow_y_scroll().flex().justify_center().items_start().px_8().py_10().bg(c(theme::BG)).child(body)
+    }
+
+    /// Mirrors `Workspace::render_prompt` so home-tab confirmations look the same.
+    fn render_confirm(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let confirm = self.confirm.as_ref()?;
+        let cancel = |this: &mut Self, cx: &mut Context<Self>| {
+            this.confirm = None;
+            cx.notify();
+        };
+        Some(
+            div()
+                .id("confirm-backdrop")
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(gpui_kit::black().opacity(0.5))
+                .on_click(cx.listener(move |this, _, _, cx| cancel(this, cx)))
+                .child(
+                    div()
+                        .id("confirm")
+                        .w(px(420.))
+                        .p_4()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .rounded_lg()
+                        .bg(c(theme::PANEL))
+                        .border_1()
+                        .border_color(c(theme::BORDER))
+                        .shadow_lg()
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .child(div().text_base().font_weight(FontWeight::BOLD).child(confirm.title.clone()))
+                        .child(div().text_sm().text_color(c(theme::MUTED)).child(confirm.message.clone()))
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap_2()
+                                .child(Button::new("confirm-cancel").label("Cancel").small().ghost().on_click(cx.listener(move |this, _, _, cx| cancel(this, cx))))
+                                .child(
+                                    Button::new("confirm-ok")
+                                        .label(confirm.confirm.clone())
+                                        .small()
+                                        .danger()
+                                        .on_click(cx.listener(|this, _, _, cx| this.submit_confirm(cx))),
+                                ),
+                        ),
+                ),
+        )
     }
 }
 
@@ -751,5 +911,6 @@ impl Render for Shell {
             .child(self.render_footer(cx))
             .children(self.render_palette(cx))
             .children(self.render_about(cx))
+            .children(self.render_confirm(cx))
     }
 }
