@@ -17,7 +17,7 @@ pub mod summary;
 mod undo;
 
 pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};
-pub use cli::{GitError, NoUpstream, ResetMode, git};
+pub use cli::{GitError, NoUpstream, PullMode, ResetMode, git};
 pub use clone::{clone_repo, repo_name_from_url};
 pub use diff::{ApplyMode, parse_patch, partial_patch};
 pub use model::*;

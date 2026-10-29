@@ -40,6 +40,43 @@ pub struct Session {
     /// Folder the last clone went into, offered for the next one.
     #[serde(default)]
     pub clone_dir: Option<PathBuf>,
+    /// What the toolbar's Pull button does; `None` follows git's `pull.rebase`.
+    #[serde(default)]
+    pub pull_action: Option<PullAction>,
+}
+
+/// What the toolbar's Pull button does, picked from the menu beside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PullAction {
+    FetchAll,
+    Merge,
+    FastForwardOnly,
+    Rebase,
+}
+
+impl PullAction {
+    pub const ALL: [Self; 4] = [Self::FetchAll, Self::Merge, Self::FastForwardOnly, Self::Rebase];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::FetchAll => "Fetch all",
+            Self::Merge => "Pull (fast-forward if possible)",
+            Self::FastForwardOnly => "Pull (fast-forward only)",
+            Self::Rebase => "Pull (rebase)",
+        }
+    }
+
+    /// The pull it runs, or `None` for a fetch.
+    pub fn pull_mode(self) -> Option<gitchrono_core::PullMode> {
+        use gitchrono_core::PullMode;
+        match self {
+            Self::FetchAll => None,
+            Self::Merge => Some(PullMode::Merge),
+            Self::FastForwardOnly => Some(PullMode::FastForwardOnly),
+            Self::Rebase => Some(PullMode::Rebase),
+        }
+    }
 }
 
 impl Session {

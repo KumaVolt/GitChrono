@@ -8,7 +8,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::Icon;
-use gpui_kit::component::menu::{ContextMenu, ContextMenuExt as _};
+use gpui_kit::component::menu::{ContextMenu, ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
@@ -20,6 +20,7 @@ use crate::icons::ToolIcon;
 use crate::menus;
 use crate::theme::{self, c};
 use crate::watcher::Change;
+use crate::projects::PullAction;
 use crate::workspace::{DiffSource, Selection, Workspace, WorkspaceEvent};
 use crate::ui::{ButtonExt as _, button};
 
@@ -326,17 +327,23 @@ impl Workspace {
                         .on_click(cx.listener(|this, _, _, cx| this.redo(cx))),
                 )
             })
-            .child(tool_button("open", ToolIcon::Open, "Open".into()).on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))))
             .when(self.repo.is_some(), |bar| {
-                bar.child(tool("fetch", ToolIcon::Fetch, "Fetch".into()).on_click(cx.listener(|this, _, _, cx| {
-                    this.load_pull_requests(cx);
-                    this.run("Fetching", Change::Refs, cx, |r| r.fetch());
-                })))
+                let pull_tip = match cx.global::<crate::avatars::Prefs>().pull {
+                    Some(action) => format!("{} (change with ▾)", action.label()),
+                    None => "Pull (git's pull.rebase setting; change with ▾)".to_string(),
+                };
                 // Same colors as the projects overview: ahead is green, behind amber.
-                .child(
-                    counted_tool_button("pull", ToolIcon::Pull, "Pull".into(), (st.behind > 0).then(|| (format!("↓{}", st.behind), theme::WARN)))
-                        .disabled_if(busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None)))),
+                bar.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .child(
+                            counted_tool_button("pull", ToolIcon::Pull, "Pull".into(), (st.behind > 0).then(|| (format!("↓{}", st.behind), theme::WARN)))
+                                .tooltip(pull_tip)
+                                .disabled_if(busy)
+                                .on_click(cx.listener(|this, _, _, cx| this.pull_button(cx))),
+                        )
+                        .child(self.pull_menu_button(cx)),
                 )
                 .child(
                     counted_tool_button("push", ToolIcon::Push, "Push".into(), (st.ahead > 0).then(|| (format!("↑{}", st.ahead), theme::ADD)))
@@ -428,8 +435,8 @@ impl Workspace {
                             row = row.child(
                                 button(("track-upstream", i)).label(format!("Track {upstream} and pull")).xsmall().when(i == 0, |b| b.primary()).on_click(
                                     cx.listener(move |this, _, _, cx| {
-                                        let upstream = upstream.clone();
-                                        this.run("Pulling", Change::Refs, cx, move |r| r.track_and_pull(&upstream));
+                                        let (upstream, mode) = (upstream.clone(), Workspace::pull_mode(cx));
+                                        this.run("Pulling", Change::Refs, cx, move |r| r.track_and_pull(&upstream, mode));
                                     }),
                                 ),
                             );
@@ -731,6 +738,34 @@ impl Workspace {
             col = col.child(item(format!("s-{}", s.index).into(), s.message.clone(), String::new(), s.target.clone(), false, RefKind::Stash, s.index, cx));
         }
         col
+    }
+
+    /// The ▾ beside Pull: picks what clicking Pull does (saved app-wide).
+    fn pull_menu_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ws = cx.entity().downgrade();
+        let repo = self.repo.clone();
+        button("pull-menu")
+            .ghost()
+            .small()
+            .h(px(42.))
+            .w(px(18.))
+            .px_0()
+            .icon(Icon::new(IconName::ChevronDown).size(px(12.)))
+            .tooltip("Choose what Pull does")
+            .dropdown_menu(move |menu, _, cx| {
+                // Nothing picked yet: git's own pull.rebase decides, so tick that one.
+                let chosen = cx.global::<crate::avatars::Prefs>().pull.unwrap_or_else(|| {
+                    if repo.as_ref().is_some_and(|r| r.pull_rebases()) { PullAction::Rebase } else { PullAction::Merge }
+                });
+                let mut menu = menu.label("What clicking Pull does");
+                for action in PullAction::ALL {
+                    let ws = ws.clone();
+                    menu = menu.item(PopupMenuItem::new(action.label()).checked(action == chosen).on_click(move |_, _, cx| {
+                        ws.update(cx, |_, cx| cx.emit(WorkspaceEvent::PullActionChosen(action))).ok();
+                    }));
+                }
+                menu
+            })
     }
 
     fn render_graph(&self, cx: &mut Context<Self>) -> impl IntoElement {

@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gitchrono_core::{GitError, NoUpstream, Repo, git};
+use gitchrono_core::{GitError, NoUpstream, PullMode, Repo, git};
 
 fn base(name: &str) -> PathBuf {
     let base = std::env::temp_dir().join(format!("gitchrono-upstream-{name}-{}", std::process::id()));
@@ -39,7 +39,7 @@ fn no_remote_at_all() {
     let base = base("none");
     let dir = work(&base);
     let repo = Repo::open(&dir).unwrap();
-    assert_eq!(no_upstream(repo.pull(None)), NoUpstream::NoRemote);
+    assert_eq!(no_upstream(repo.pull(PullMode::Config)), NoUpstream::NoRemote);
     assert_eq!(no_upstream(repo.push(false)), NoUpstream::NoRemote, "push explains it too, rather than naming origin");
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -49,7 +49,7 @@ fn detached_head() {
     let base = base("detached");
     let dir = work(&base);
     git(&dir, &["checkout", "-q", "--detach"]).unwrap();
-    assert_eq!(no_upstream(Repo::open(&dir).unwrap().pull(None)), NoUpstream::Detached);
+    assert_eq!(no_upstream(Repo::open(&dir).unwrap().pull(PullMode::Config)), NoUpstream::Detached);
     let _ = std::fs::remove_dir_all(&base);
 }
 
@@ -60,13 +60,13 @@ fn remote_without_the_branch_offers_publishing() {
     let url = bare(&base, "origin.git");
     git(&dir, &["remote", "add", "origin", &url]).unwrap();
     let repo = Repo::open(&dir).unwrap();
-    let why = no_upstream(repo.pull(None));
+    let why = no_upstream(repo.pull(PullMode::Config));
     assert_eq!(why, NoUpstream::Publish { branch: "main".into(), remotes: vec!["origin".into()] });
     assert!(why.to_string().contains("isn't on origin yet"), "{why}");
 
     repo.publish("origin").unwrap();
     assert_eq!(repo.status().unwrap().upstream.as_deref(), Some("origin/main"));
-    repo.pull(None).unwrap();
+    repo.pull(PullMode::Config).unwrap();
     let _ = std::fs::remove_dir_all(&base);
 }
 
@@ -88,10 +88,10 @@ fn same_named_remote_branch_offers_tracking_even_before_a_fetch() {
     git(&dir, &["remote", "add", "origin", &url]).unwrap();
 
     let repo = Repo::open(&dir).unwrap();
-    let why = no_upstream(repo.pull(None));
+    let why = no_upstream(repo.pull(PullMode::Config));
     assert_eq!(why, NoUpstream::Track { branch: "main".into(), candidates: vec!["origin/main".into()] });
 
-    repo.track_and_pull("origin/main").unwrap();
+    repo.track_and_pull("origin/main", PullMode::Config).unwrap();
     let status = repo.status().unwrap();
     assert_eq!((status.upstream.as_deref(), status.behind), (Some("origin/main"), 0));
     assert_eq!(std::fs::read_to_string(dir.join("f")).unwrap(), "2", "pulled the remote's commit");
@@ -107,20 +107,20 @@ fn several_remotes_put_origin_first() {
     git(&dir, &["remote", "add", "origin", &b]).unwrap();
     let repo = Repo::open(&dir).unwrap();
     assert_eq!(
-        no_upstream(repo.pull(None)),
+        no_upstream(repo.pull(PullMode::Config)),
         NoUpstream::Publish { branch: "main".into(), remotes: vec!["origin".into(), "upstream".into()] }
     );
 
     git(&dir, &["push", "-q", "upstream", "main"]).unwrap();
     git(&dir, &["push", "-q", "origin", "main"]).unwrap();
     assert_eq!(
-        no_upstream(repo.pull(None)),
+        no_upstream(repo.pull(PullMode::Config)),
         NoUpstream::Track { branch: "main".into(), candidates: vec!["origin/main".into(), "upstream/main".into()] }
     );
 
     // remote.pushDefault outranks origin.
     git(&dir, &["config", "remote.pushDefault", "upstream"]).unwrap();
-    let NoUpstream::Track { candidates, .. } = no_upstream(repo.pull(None)) else { panic!("expected Track") };
+    let NoUpstream::Track { candidates, .. } = no_upstream(repo.pull(PullMode::Config)) else { panic!("expected Track") };
     assert_eq!(candidates[0], "upstream/main");
     let _ = std::fs::remove_dir_all(&base);
 }

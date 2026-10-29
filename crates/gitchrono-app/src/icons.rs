@@ -6,17 +6,15 @@ use std::borrow::Cow;
 use gpui_kit::assets::{IconName, IconNamed};
 use gpui_kit::*;
 
-gpui_kit::assets::icon_assets!(Lucide, [FolderOpen, RotateCcw, RotateCw, RefreshCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus]);
+gpui_kit::assets::icon_assets!(Lucide, [RotateCcw, RotateCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus, ChevronDown, Check]);
 
 const STASH: (&str, &[u8]) = ("icons/gitchrono/stash.svg", include_bytes!("../assets/icons/stash.svg"));
 const STASH_POP: (&str, &[u8]) = ("icons/gitchrono/stash-pop.svg", include_bytes!("../assets/icons/stash-pop.svg"));
 
 #[derive(Clone, Copy)]
 pub enum ToolIcon {
-    Open,
     Undo,
     Redo,
-    Fetch,
     Pull,
     Push,
     Branch,
@@ -29,10 +27,8 @@ pub enum ToolIcon {
 impl IconNamed for ToolIcon {
     fn path(self) -> SharedString {
         match self {
-            Self::Open => IconName::FolderOpen.path(),
             Self::Undo => IconName::RotateCcw.path(),
             Self::Redo => IconName::RotateCw.path(),
-            Self::Fetch => IconName::RefreshCw.path(),
             Self::Pull => IconName::ArrowDownToLine.path(),
             Self::Push => IconName::ArrowUpFromLine.path(),
             Self::Branch => IconName::GitBranch.path(),
@@ -69,11 +65,9 @@ mod tests {
     use gpui_kit::AssetSource as _;
     use gpui_kit::assets::IconNamed as _;
 
-    const ALL: [ToolIcon; 11] = [
-        ToolIcon::Open,
+    const ALL: [ToolIcon; 9] = [
         ToolIcon::Undo,
         ToolIcon::Redo,
-        ToolIcon::Fetch,
         ToolIcon::Pull,
         ToolIcon::Push,
         ToolIcon::Branch,

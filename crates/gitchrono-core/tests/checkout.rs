@@ -1,6 +1,6 @@
 //! Checking out remote branches when a local branch of the same name exists.
 
-use gitchrono_core::{Repo, git};
+use gitchrono_core::{PullMode, Repo, git};
 
 fn commit(dir: &std::path::Path, msg: &str) {
     std::fs::write(dir.join("f"), msg).unwrap();
@@ -67,7 +67,60 @@ fn push_rejection_is_recognised_and_pull_then_push_fixes_it() {
     let repo = Repo::open(&b).unwrap();
     let err = repo.push(false).unwrap_err();
     assert!(err.downcast_ref::<gitchrono_core::GitError>().is_some_and(|e| e.is_push_rejected()), "{err:#}");
-    repo.pull_then_push().unwrap();
+    repo.pull_then_push(PullMode::Config).unwrap();
     assert_eq!(git(&b, &["rev-parse", "HEAD"]).unwrap(), git(&b, &["rev-parse", "origin/main"]).unwrap());
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// `b` one commit behind and one ahead of `origin/main`, in a fresh `base`.
+fn diverged(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let base = std::env::temp_dir().join(format!("gitchrono-pull-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    git(&base, &["init", "-q", "--bare", "-b", "main", "origin.git"]).unwrap();
+    for name in ["a", "b"] {
+        git(&base, &["clone", "-q", "origin.git", name]).unwrap();
+        let dir = base.join(name);
+        for args in [&["config", "user.name", "T"][..], &["config", "user.email", "t@example.com"], &["config", "commit.gpgsign", "false"], &["config", "pull.rebase", "false"]] {
+            git(&dir, args).unwrap();
+        }
+    }
+    let (a, b) = (base.join("a"), base.join("b"));
+    std::fs::write(a.join("f"), "1").unwrap();
+    git(&a, &["add", "."]).unwrap();
+    git(&a, &["commit", "-qm", "one"]).unwrap();
+    git(&a, &["push", "-q", "-u", "origin", "main"]).unwrap();
+    git(&b, &["pull", "-q", "origin", "main"]).unwrap();
+    git(&b, &["branch", "-q", "-u", "origin/main"]).unwrap();
+    commit(&a, "two");
+    git(&a, &["push", "-q"]).unwrap();
+    std::fs::write(b.join("g"), "x").unwrap();
+    git(&b, &["add", "."]).unwrap();
+    git(&b, &["commit", "-qm", "local"]).unwrap();
+    (base, b)
+}
+
+#[test]
+fn pull_modes_on_diverged_branches() {
+    let (base, b) = diverged("ff-only");
+    let repo = Repo::open(&b).unwrap();
+    let before = git(&b, &["rev-parse", "HEAD"]).unwrap();
+    let err = format!("{:#}", repo.pull(PullMode::FastForwardOnly).unwrap_err());
+    assert!(err.contains("can't be fast-forwarded"), "a short explanation, not git's hints: {err}");
+    assert_eq!(git(&b, &["rev-parse", "HEAD"]).unwrap(), before, "and leaves the branch alone");
+    let _ = std::fs::remove_dir_all(&base);
+
+    let (base, b) = diverged("rebase");
+    // Uncommitted changes don't stop a rebase pull: they're set aside and put back.
+    std::fs::write(b.join("g"), "edited").unwrap();
+    Repo::open(&b).unwrap().pull(PullMode::Rebase).unwrap();
+    assert_eq!(std::fs::read_to_string(b.join("g")).unwrap(), "edited");
+    assert_eq!(git(&b, &["rev-list", "--count", "--merges", "HEAD"]).unwrap().trim(), "0", "rebased, no merge commit");
+    assert_eq!(git(&b, &["rev-parse", "HEAD~1"]).unwrap(), git(&b, &["rev-parse", "origin/main"]).unwrap());
+    let _ = std::fs::remove_dir_all(&base);
+
+    let (base, b) = diverged("merge");
+    Repo::open(&b).unwrap().pull(PullMode::Merge).unwrap();
+    assert_eq!(git(&b, &["rev-list", "--count", "--merges", "HEAD"]).unwrap().trim(), "1", "merged");
     let _ = std::fs::remove_dir_all(&base);
 }

@@ -14,6 +14,14 @@ use sha2::{Digest as _, Sha256};
 #[derive(Clone, Copy, Default)]
 pub struct Prefs {
     pub gravatar: bool,
+    /// What the toolbar's Pull button does; `None` follows git's `pull.rebase`.
+    pub pull: Option<crate::projects::PullAction>,
+}
+
+impl Prefs {
+    pub fn of(session: &crate::projects::Session) -> Self {
+        Self { gravatar: session.gravatar_enabled(), pull: session.pull_action }
+    }
 }
 
 impl Global for Prefs {}
@@ -22,8 +30,8 @@ pub struct AvatarStore(pub Entity<Avatars>);
 
 impl Global for AvatarStore {}
 
-pub fn init(gravatar: bool, cx: &mut App) {
-    cx.set_global(Prefs { gravatar });
+pub fn init(prefs: Prefs, cx: &mut App) {
+    cx.set_global(prefs);
     let store = cx.new(|_| Avatars::default());
     cx.set_global(AvatarStore(store));
 }

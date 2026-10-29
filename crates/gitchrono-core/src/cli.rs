@@ -48,6 +48,19 @@ impl GitError {
     }
 }
 
+/// How [`Repo::pull`] brings in the remote's commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PullMode {
+    /// The user's `pull.rebase` setting; a merge when it isn't set.
+    #[default]
+    Config,
+    /// Merge, fast-forwarding when possible.
+    Merge,
+    /// Fast-forward only: refuses when the branches have diverged.
+    FastForwardOnly,
+    Rebase,
+}
+
 /// Why the current branch has nothing to pull from, and what fixes it. Pull
 /// and push return this as their error, so the caller can offer the fix.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -588,17 +601,31 @@ impl Repo {
         self.git(&["fetch", "--all", "--prune"]).map(drop)
     }
 
-    /// `rebase: None` follows the user's `pull.rebase` setting, merging when
-    /// it isn't set (plain `git pull` refuses diverged branches then).
+    /// Whether the user's `pull.rebase` setting asks for a rebase.
+    pub fn pull_rebases(&self) -> bool {
+        self.git(&["config", "--type=bool", "--get", "pull.rebase"]).is_ok_and(|v| v.trim() == "true")
+    }
+
     /// Fails with [`NoUpstream`] when there's nothing to pull from.
-    pub fn pull(&self, rebase: Option<bool>) -> Result<()> {
+    pub fn pull(&self, mode: PullMode) -> Result<()> {
         if let Some(why) = self.missing_upstream()? {
             return Err(why.into());
         }
-        let rebase = rebase.or_else(|| self.git(&["config", "--type=bool", "--get", "pull.rebase"]).ok().map(|v| v.trim() == "true"));
-        self.git(&["pull", if rebase == Some(true) { "--rebase" } else { "--no-rebase" }]).map(drop).map_err(|e| {
+        let args: &[&str] = match mode {
+            // A rebase refuses to start with uncommitted changes; set them aside meanwhile.
+            PullMode::Config if self.pull_rebases() => &["pull", "--rebase", "--autostash"],
+            // Plain `git pull` refuses diverged branches when pull.rebase isn't set.
+            PullMode::Config | PullMode::Merge => &["pull", "--no-rebase"],
+            PullMode::FastForwardOnly => &["pull", "--ff-only"],
+            PullMode::Rebase => &["pull", "--rebase", "--autostash"],
+        };
+        self.git(args).map(drop).map_err(|e| {
+            let Some(git_err) = e.downcast_ref::<GitError>() else { return e };
+            if git_err.stderr.contains("Not possible to fast-forward") {
+                return anyhow::anyhow!("This branch and its upstream have both moved on, so it can't be fast-forwarded. Pull with a merge or a rebase instead.");
+            }
             // Whatever the check above missed (say, an upstream with no remote).
-            match e.downcast_ref::<GitError>().filter(|g| g.is_no_upstream()).and_then(|_| self.missing_upstream().ok().flatten()) {
+            match git_err.is_no_upstream().then(|| self.missing_upstream().ok().flatten()).flatten() {
                 Some(why) => why.into(),
                 None => e,
             }
@@ -648,10 +675,10 @@ impl Repo {
     }
 
     /// Sets the current branch to track `upstream` (`origin/main`), then pulls.
-    pub fn track_and_pull(&self, upstream: &str) -> Result<()> {
+    pub fn track_and_pull(&self, upstream: &str, mode: PullMode) -> Result<()> {
         let branch = self.status()?.branch.ok_or(NoUpstream::Detached)?;
         self.set_upstream(&branch, upstream)?;
-        self.pull(None)
+        self.pull(mode)
     }
 
     /// Pushes the current branch to `remote` and tracks it there.
@@ -660,9 +687,9 @@ impl Repo {
         self.git(&["push", "-u", remote, &branch]).map(drop)
     }
 
-    /// Pulls (as `pull(None)`), then pushes: for when the remote moved on.
-    pub fn pull_then_push(&self) -> Result<()> {
-        self.pull(None)?;
+    /// Pulls, then pushes: for when the remote moved on.
+    pub fn pull_then_push(&self, mode: PullMode) -> Result<()> {
+        self.pull(mode)?;
         self.push(false)
     }
 

@@ -203,6 +203,10 @@ impl Shell {
             WorkspaceEvent::CloneRequested => this.open_clone(window, cx),
             WorkspaceEvent::InitRequested => this.prompt_init(window, cx),
             WorkspaceEvent::OpenPath(path) => this.open_path(path.clone(), window, cx),
+            WorkspaceEvent::PullActionChosen(action) => {
+                let action = *action;
+                this.set_pref(cx, |s| s.pull_action = Some(action));
+            }
             WorkspaceEvent::WorktreeRemoved(path) => {
                 let gone = path.canonicalize().unwrap_or_else(|_| path.clone());
                 if let Some(i) = this.tabs.iter().position(|t| matches!(t, Tab::Repo { path: p, .. } if *p == gone || *p == *path)) {
@@ -430,7 +434,7 @@ impl Shell {
     /// Changes an app preference stored with the session.
     pub(crate) fn set_pref(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Session)) {
         change(&mut self.session);
-        cx.set_global(crate::avatars::Prefs { gravatar: self.session.gravatar_enabled() });
+        cx.set_global(crate::avatars::Prefs::of(&self.session));
         self.save_session();
         cx.refresh_windows();
     }

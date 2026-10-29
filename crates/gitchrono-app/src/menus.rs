@@ -145,7 +145,10 @@ pub fn ref_menu(
                     .item(item("Force push (with lease)…", ws, |this, window, cx| {
                         this.confirm("Force push", "Overwrite the remote branch with your local history?".into(), "Force push", "Pushing", window, cx, |r| r.push(true));
                     }))
-                    .item(item("Pull", ws, |this, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None))))
+                    .item(item("Pull", ws, |this, _, cx| {
+                        let mode = Workspace::pull_mode(cx);
+                        this.run("Pulling", Change::Refs, cx, move |r| r.pull(mode));
+                    }))
                     .separator();
             }
             menu.when(!is_current, |menu| {

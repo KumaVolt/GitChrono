@@ -12,7 +12,7 @@ const DEBOUNCE: Duration = Duration::from_millis(400);
 const RELOAD_COOLDOWN: Duration = Duration::from_secs(2);
 
 use anyhow::Result;
-use gitchrono_core::{ApplyMode, Commit, FileChange, FileDiff, FileStatus, Repo, Snapshot, Status, UndoEntry};
+use gitchrono_core::{ApplyMode, Commit, FileChange, FileDiff, FileStatus, PullMode, Repo, Snapshot, Status, UndoEntry};
 use gitchrono_graph::Graph;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
@@ -110,6 +110,8 @@ pub enum WorkspaceEvent {
     OpenPath(PathBuf),
     /// A linked worktree was removed; its tab should close.
     WorktreeRemoved(PathBuf),
+    /// The user picked what the toolbar's Pull button does (saved by the shell).
+    PullActionChosen(crate::projects::PullAction),
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -962,7 +964,25 @@ impl Workspace {
 
     pub fn pull_and_push(&mut self, cx: &mut Context<Self>) {
         self.push_behind = None;
-        self.run("Pulling and pushing", Change::Refs, cx, |r| r.pull_then_push());
+        let mode = Self::pull_mode(cx);
+        self.run("Pulling and pushing", Change::Refs, cx, move |r| r.pull_then_push(mode));
+    }
+
+    /// How pulls bring in commits: the Pull menu's choice, or git's own
+    /// `pull.rebase` when none was picked (or the choice is Fetch all).
+    pub fn pull_mode(cx: &App) -> PullMode {
+        cx.global::<crate::avatars::Prefs>().pull.and_then(|a| a.pull_mode()).unwrap_or_default()
+    }
+
+    /// The toolbar's Pull button: whatever the menu beside it is set to.
+    pub fn pull_button(&mut self, cx: &mut Context<Self>) {
+        if cx.global::<crate::avatars::Prefs>().pull == Some(crate::projects::PullAction::FetchAll) {
+            self.load_pull_requests(cx);
+            self.run("Fetching", Change::Refs, cx, |r| r.fetch());
+        } else {
+            let mode = Self::pull_mode(cx);
+            self.run("Pulling", Change::Refs, cx, move |r| r.pull(mode));
+        }
     }
 
     pub fn toggle_section(&mut self, key: &str, cx: &mut Context<Self>) {

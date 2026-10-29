@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use gitchrono_core::Repo;
+use gitchrono_core::{PullMode, Repo};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -154,8 +154,11 @@ impl Shell {
             let w = ws.read(cx);
             items.extend([
                 git_op("Fetch", "Fetching", Change::Refs, |r| r.fetch()),
-                git_op("Pull", "Pulling", Change::Refs, |r| r.pull(None)),
-                git_op("Pull (rebase)", "Pulling", Change::Refs, |r| r.pull(Some(true))),
+                repo_action("Pull", |ws, _, cx| {
+                    let mode = Workspace::pull_mode(cx);
+                    ws.run("Pulling", Change::Refs, cx, move |r| r.pull(mode));
+                }),
+                git_op("Pull (rebase)", "Pulling", Change::Refs, |r| r.pull(PullMode::Rebase)),
                 repo_action("Push", |ws, _, cx| ws.push(cx)),
                 repo_action("Create branch…", |ws, w, cx| ws.prompt_create_branch(w, cx)),
                 repo_action("Stash changes…", |ws, w, cx| ws.prompt_stash(w, cx)),

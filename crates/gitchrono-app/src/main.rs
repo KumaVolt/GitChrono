@@ -46,7 +46,7 @@ fn main() {
         palette::init(cx);
         workspace::init(cx);
         ai::init(cx);
-        avatars::init(projects::Session::load().gravatar_enabled(), cx);
+        avatars::init(avatars::Prefs::of(&projects::Session::load()), cx);
         update::cleanup();
 
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
