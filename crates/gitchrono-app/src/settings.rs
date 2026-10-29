@@ -4,15 +4,16 @@
 use std::path::PathBuf;
 
 use gitchrono_core::setup::{self, GitSetup, Scope, SshKey};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::projects;
 use crate::shell::Shell;
 use crate::theme::{self, c};
+use crate::ui::{ButtonExt as _, button};
 
 pub struct Settings {
     scope: Scope,
@@ -206,7 +207,7 @@ impl Shell {
                     .filter(|(_, v)| local || v.is_some())
                     .enumerate()
                     .map(move |(i, (text, value))| {
-                        Button::new((id, i))
+                        button((id, i))
                             .label(text)
                             .xsmall()
                             .when(value == current, |b| b.primary())
@@ -225,7 +226,7 @@ impl Shell {
             .flex()
             .gap_1()
             .child(
-                Button::new("settings-global")
+                button("settings-global")
                     .label("All repositories")
                     .small()
                     .when(!local, |b| b.primary())
@@ -234,7 +235,7 @@ impl Shell {
             )
             .when_some(s.repo.clone(), |d, repo| {
                 d.child(
-                    Button::new("settings-local")
+                    button("settings-local")
                         .label(format!("{} only", projects::display_name(&repo)))
                         .small()
                         .when(local, |b| b.primary())
@@ -249,7 +250,7 @@ impl Shell {
             .gap_1()
             .children([("SSH", "ssh"), ("GPG", "openpgp")].into_iter().enumerate().map(|(i, (text, value))| {
                 let selected = if value == "ssh" { format_is_ssh } else { !format_is_ssh };
-                Button::new(("settings-format", i))
+                button(("settings-format", i))
                     .label(text)
                     .xsmall()
                     .when(selected, |b| b.primary())
@@ -291,9 +292,9 @@ impl Shell {
                             )
                             .child(div().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().child(key.fingerprint.clone())),
                     )
-                    .child(Button::new(("key-copy", i)).label("Copy public key").xsmall().ghost().on_click(cx.listener(move |this, _, _, cx| this.copy_public_key(&copy, cx))))
+                    .child(button(("key-copy", i)).label("Copy public key").xsmall().ghost().on_click(cx.listener(move |this, _, _, cx| this.copy_public_key(&copy, cx))))
                     .child(
-                        Button::new(("key-sign", i))
+                        button(("key-sign", i))
                             .label("Use for signing")
                             .xsmall()
                             .ghost()
@@ -335,7 +336,7 @@ impl Shell {
                     .items_center()
                     .gap_3()
                     .child(
-                        Button::new("settings-back")
+                        button("settings-back")
                             .label("← Back")
                             .small()
                             .ghost()
@@ -399,25 +400,25 @@ impl Shell {
                             .items_center()
                             .child(div().w(px(220.)).child(Input::new(&s.passphrase).mask_toggle()))
                             .child(
-                                Button::new("key-generate")
+                                button("key-generate")
                                     .label(if s.busy == Some("generate") { "Generating…" } else { "Generate Ed25519 key" })
                                     .small()
-                                    .disabled(busy)
+                                    .disabled_if(busy)
                                     .on_click(cx.listener(|this, _, _, cx| this.generate_key(cx))),
                             )
                             .child(div().flex_1())
                             .children(["github.com", "gitlab.com"].into_iter().enumerate().map(|(i, host)| {
-                                Button::new(("key-test", i))
+                                button(("key-test", i))
                                     .label(if s.busy == Some(host) { "Testing…" } else if i == 0 { "Test GitHub" } else { "Test GitLab" })
                                     .small()
                                     .ghost()
-                                    .disabled(busy)
+                                    .disabled_if(busy)
                                     .on_click(cx.listener(move |this, _, _, cx| this.test_host(host, cx)))
                             })),
                     )
                     .when(s.created, |d| {
                         d.child(div().flex().child(
-                            Button::new("key-github")
+                            button("key-github")
                                 .label("Add key on GitHub ↗")
                                 .small()
                                 .ghost()
@@ -434,8 +435,8 @@ impl Shell {
                     .flex()
                     .gap_2()
                     .child(div().flex_1())
-                    .child(Button::new("settings-cancel").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| this.close_settings(cx))))
-                    .child(Button::new("settings-save").label("Save").small().primary().on_click(cx.listener(|this, _, _, cx| this.save_settings(cx)))),
+                    .child(button("settings-cancel").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| this.close_settings(cx))))
+                    .child(button("settings-save").label("Save").small().primary().on_click(cx.listener(|this, _, _, cx| this.save_settings(cx)))),
             );
 
         Some(div().id("settings-page").size_full().overflow_y_scroll().flex().justify_center().items_start().px_8().py_10().bg(c(theme::BG)).child(body))
@@ -447,7 +448,7 @@ impl Shell {
     fn render_app_prefs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let switch = |id: &'static str, on: bool, cx: &mut Context<Self>, set: fn(&mut crate::projects::Session, bool)| {
             div().flex().gap_1().children([("Off", false), ("On", true)].into_iter().enumerate().map(move |(i, (label, value))| {
-                Button::new((id, i))
+                button((id, i))
                     .label(label)
                     .xsmall()
                     .when(on == value, |b| b.primary())
@@ -483,7 +484,7 @@ impl Shell {
             )
             .child(
                 row("Check for updates automatically", self.update_status().unwrap_or_else(|| "New versions come from GitHub releases and are checked before installing.".into()))
-                    .child(Button::new("prefs-check-now").label("Check now").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx))))
+                    .child(button("prefs-check-now").label("Check now").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx))))
                     .child(switch("prefs-updates", self.auto_update_enabled(), cx, |s, v| s.auto_update = Some(v))),
             )
             .child(
@@ -491,7 +492,7 @@ impl Shell {
                     "Profile pictures",
                     "From Gravatar, which receives a hash of each author's email; people without one get a pattern. GitHub no-reply addresses use GitHub.".into(),
                 )
-                .child(Button::new("prefs-gravatar-link").label("Gravatar ↗").xsmall().ghost().on_click(|_, _, cx| cx.open_url("https://gravatar.com")))
+                .child(button("prefs-gravatar-link").label("Gravatar ↗").xsmall().ghost().on_click(|_, _, cx| cx.open_url("https://gravatar.com")))
                 .child(switch("prefs-gravatar", self.session.gravatar_enabled(), cx, |s, v| s.profile_pictures = Some(v))),
             )
     }

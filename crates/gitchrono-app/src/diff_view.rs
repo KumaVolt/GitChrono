@@ -1,7 +1,7 @@
 //! Unified diff view with hunk- and line-level stage / unstage / discard.
 
 use gitchrono_core::DiffLineKind;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -9,6 +9,7 @@ use gpui_kit::*;
 use crate::highlight::{Highlights, display_text};
 use crate::theme::{self, c};
 use crate::workspace::{DiffView, Workspace};
+use crate::ui::button;
 
 impl Workspace {
     pub fn render_diff(&self, view: &DiffView, cx: &mut Context<Self>) -> impl IntoElement {
@@ -33,7 +34,7 @@ impl Workspace {
                     .child(div().flex_1().truncate().child(hunk.header.clone()))
                     .when_some(partial, |d, staged| {
                         d.child(
-                            Button::new(("hunk-apply", h))
+                            button(("hunk-apply", h))
                                 .label(if staged { "Unstage hunk" } else { "Stage hunk" })
                                 .xsmall()
                                 .outline()
@@ -41,7 +42,7 @@ impl Workspace {
                         )
                         .when(!staged, |d| {
                             d.child(
-                                Button::new(("hunk-discard", h))
+                                button(("hunk-discard", h))
                                     .label("Discard hunk")
                                     .xsmall()
                                     .ghost()
@@ -110,7 +111,7 @@ impl Workspace {
             .when_some(partial.filter(|_| selected > 0), |d, staged| {
                 let noun = if selected == 1 { "line" } else { "lines" };
                 d.child(
-                    Button::new("lines-apply")
+                    button("lines-apply")
                         .label(format!("{} {selected} {noun}", if staged { "Unstage" } else { "Stage" }))
                         .xsmall()
                         .primary()
@@ -121,14 +122,14 @@ impl Workspace {
                 )
                 .when(!staged, |d| {
                     d.child(
-                        Button::new("lines-discard")
+                        button("lines-discard")
                             .label(format!("Discard {selected} {noun}"))
                             .xsmall()
                             .ghost()
                             .on_click(cx.listener(|this, _, window, cx| this.confirm_discard(None, window, cx))),
                     )
                 })
-                .child(Button::new("lines-clear").label("Clear").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+                .child(button("lines-clear").label("Clear").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                     if let Some(view) = &mut this.diff {
                         view.selected.clear();
                     }
@@ -136,7 +137,7 @@ impl Workspace {
                 })))
             })
             .child(
-                Button::new("diff-layout")
+                button("diff-layout")
                     .label(if self.diff_split { "Unified" } else { "Split" })
                     .xsmall()
                     .ghost()
@@ -147,7 +148,7 @@ impl Workspace {
             )
             .child(div().text_xs().text_color(c(theme::ADD)).child(format!("+{}", view.diff.additions)))
             .child(div().text_xs().text_color(c(theme::DEL)).child(format!("-{}", view.diff.deletions)))
-            .child(Button::new("close-diff").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+            .child(button("close-diff").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                 this.diff = None;
                 cx.notify();
             })));

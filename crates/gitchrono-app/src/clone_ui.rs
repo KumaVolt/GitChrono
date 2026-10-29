@@ -3,15 +3,16 @@
 
 use std::path::PathBuf;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::projects;
 use crate::shell::Shell;
 use crate::theme::{self, c};
+use crate::ui::{ButtonExt as _, button};
 
 pub struct CloneDialog {
     url: Entity<InputState>,
@@ -253,10 +254,10 @@ impl Shell {
                                         .child(projects::short_path(&d.parent)),
                                 )
                                 .child(
-                                    Button::new("clone-choose")
+                                    button("clone-choose")
                                         .label("Choose…")
                                         .small()
-                                        .disabled(busy)
+                                        .disabled_if(busy)
                                         .on_click(cx.listener(|this, _, window, cx| this.choose_clone_parent(window, cx))),
                                 ),
                         )
@@ -271,12 +272,12 @@ impl Shell {
                                 .flex()
                                 .justify_end()
                                 .gap_2()
-                                .child(Button::new("clone-cancel").label("Cancel").ghost().disabled(busy).on_click(cx.listener(|this, _, _, cx| this.close_clone(cx))))
+                                .child(button("clone-cancel").label("Cancel").ghost().disabled_if(busy).on_click(cx.listener(|this, _, _, cx| this.close_clone(cx))))
                                 .child(
-                                    Button::new("clone-start")
+                                    button("clone-start")
                                         .label(if busy { "Cloning…" } else { "Clone" })
                                         .primary()
-                                        .disabled(busy || target.is_none())
+                                        .disabled_if(busy || target.is_none())
                                         .on_click(cx.listener(|this, _, window, cx| this.start_clone(window, cx))),
                                 ),
                         ),

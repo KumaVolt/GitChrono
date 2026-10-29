@@ -1,7 +1,7 @@
 //! Drag a branch onto another to merge or rebase.
 
 use gitchrono_core::Repo;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -9,6 +9,7 @@ use gpui_kit::*;
 use crate::theme::{self, c};
 use crate::watcher::Change;
 use crate::workspace::{Op, Workspace};
+use crate::ui::button;
 
 #[derive(Clone)]
 pub struct DraggedRef {
@@ -127,14 +128,14 @@ impl Workspace {
                         .on_click(|_, _, cx| cx.stop_propagation())
                         .child(div().text_base().font_weight(FontWeight::BOLD).child(menu.title.clone()))
                         .children(menu.options.iter().enumerate().map(|(i, (label, _, _))| {
-                            Button::new(("drop-option", i))
+                            button(("drop-option", i))
                                 .label(label.clone())
                                 .small()
                                 .when(i == 0, |b| b.primary())
                                 .when(i > 0, |b| b.outline())
                                 .on_click(cx.listener(move |this, _, _, cx| this.run_drop_option(i, cx)))
                         }))
-                        .child(Button::new("drop-cancel").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| {
+                        .child(button("drop-cancel").label("Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| {
                             this.drop_menu = None;
                             cx.notify();
                         }))),

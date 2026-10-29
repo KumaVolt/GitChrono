@@ -2,14 +2,15 @@
 //! mark the file resolved.
 
 use gitchrono_core::{Chunk, ConflictFile, Resolution};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::theme::{self, c};
 use crate::watcher::Change;
 use crate::workspace::Workspace;
+use crate::ui::{ButtonExt as _, button};
 
 #[cfg(target_os = "macos")]
 const MONO: &str = "Menlo";
@@ -88,17 +89,17 @@ impl Workspace {
             .child(div().text_xs().text_color(c(theme::WARN)).child("CONFLICT"))
             .child(div().flex_1().min_w_0().truncate().text_sm().font_weight(FontWeight::BOLD).child(view.file.path.clone()))
             .child(div().text_xs().text_color(c(theme::MUTED)).child(format!("{done} of {total} resolved")))
-            .child(Button::new("conflict-ours").label("Take ours").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.take_whole_file(true, cx))))
-            .child(Button::new("conflict-theirs").label("Take theirs").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.take_whole_file(false, cx))))
+            .child(button("conflict-ours").label("Take ours").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.take_whole_file(true, cx))))
+            .child(button("conflict-theirs").label("Take theirs").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.take_whole_file(false, cx))))
             .child(
-                Button::new("conflict-save")
+                button("conflict-save")
                     .label(if done == total { "Save & mark resolved" } else { "Save" })
                     .xsmall()
                     .primary()
-                    .disabled(self.busy.is_some())
+                    .disabled_if(self.busy.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.save_conflict(cx))),
             )
-            .child(Button::new("conflict-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+            .child(button("conflict-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                 this.conflict = None;
                 cx.notify();
             })));
@@ -117,7 +118,7 @@ impl Workspace {
                     index += 1;
                     let choice = view.choices[i];
                     let option = |id: &'static str, label: &'static str, resolution: Resolution, cx: &mut Context<Self>| {
-                        Button::new((id, i))
+                        button((id, i))
                             .label(label)
                             .xsmall()
                             .when(choice == Some(resolution), |b| b.primary())

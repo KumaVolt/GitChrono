@@ -2,13 +2,14 @@
 //! to install or update git on this system, then "Check again".
 
 use gitchrono_core::gitbin::{GitCheck, MIN_VERSION};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::shell::Shell;
 use crate::theme::{self, c};
+use crate::ui::button;
 
 /// The install command for this Linux distribution, from /etc/os-release.
 pub fn linux_install_command(os_release: &str) -> &'static str {
@@ -52,7 +53,7 @@ pub fn render(check: &GitCheck, cx: &mut Context<Shell>) -> impl IntoElement {
             .items_center()
             .gap_2()
             .child(div().flex_1().px_3().py_2().rounded_md().bg(c(theme::BG)).border_1().border_color(c(theme::BORDER)).font_family("monospace").text_sm().child(text))
-            .child(Button::new(SharedString::from(format!("copy-{text}"))).label("Copy").small().ghost().on_click(move |_, _, cx| {
+            .child(button(SharedString::from(format!("copy-{text}"))).label("Copy").small().ghost().on_click(move |_, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
             }))
     };
@@ -64,7 +65,7 @@ pub fn render(check: &GitCheck, cx: &mut Context<Shell>) -> impl IntoElement {
             .gap_3()
             .child(label("INSTALL ON MACOS"))
             .child(div().text_sm().text_color(c(theme::MUTED)).child("Apple's Command Line Tools include Git. Click below, then Install in the window that opens; it takes a few minutes."))
-            .child(div().flex().child(Button::new("git-install-clt").label("Install Command Line Tools").small().primary().on_click(|_, _, _| {
+            .child(div().flex().child(button("git-install-clt").label("Install Command Line Tools").small().primary().on_click(|_, _, _| {
                 let _ = std::process::Command::new("xcode-select").arg("--install").spawn();
             })))
             .child(div().text_sm().text_color(c(theme::MUTED)).child("Or, with Homebrew:"))
@@ -78,7 +79,7 @@ pub fn render(check: &GitCheck, cx: &mut Context<Shell>) -> impl IntoElement {
             .child(div().text_sm().text_color(c(theme::MUTED)).child(
                 "GitChrono normally brings its own Git, but it's missing from this copy. Install Git for Windows, or download GitChrono again.",
             ))
-            .child(div().flex().gap_2().child(Button::new("git-download-win").label("Download Git for Windows").small().primary().on_click(|_, _, cx| {
+            .child(div().flex().gap_2().child(button("git-download-win").label("Download Git for Windows").small().primary().on_click(|_, _, cx| {
                 cx.open_url("https://git-scm.com/download/win")
             })))
             .child(div().text_sm().text_color(c(theme::MUTED)).child("Or with winget:"))
@@ -109,7 +110,7 @@ pub fn render(check: &GitCheck, cx: &mut Context<Shell>) -> impl IntoElement {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(Button::new("git-check-again").label("Check again").primary().on_click(cx.listener(|this, _, window, cx| this.recheck_git(window, cx))))
+                    .child(button("git-check-again").label("Check again").primary().on_click(cx.listener(|this, _, window, cx| this.recheck_git(window, cx))))
                     .child(div().text_xs().text_color(c(theme::FAINT)).child("Your open tabs come back once Git is found.")),
             ),
     )

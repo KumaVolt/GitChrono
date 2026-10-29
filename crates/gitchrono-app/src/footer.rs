@@ -4,14 +4,15 @@
 
 use std::time::Duration;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::shell::Shell;
 use crate::theme::{self, c};
 use crate::update::{self, Installed, Release};
+use crate::ui::{ButtonExt as _, button};
 
 #[derive(Default)]
 pub enum UpdateState {
@@ -163,7 +164,7 @@ impl Shell {
         let status = match &self.update {
             UpdateState::Idle => None,
             UpdateState::Available(r) => Some(
-                Button::new("update-install")
+                button("update-install")
                     .label(format!("Update to {}", r.version))
                     .xsmall()
                     .outline()
@@ -194,7 +195,7 @@ impl Shell {
                     .items_center()
                     .gap_2()
                     .child(div().text_color(c(theme::DEL)).truncate().child(e.clone()))
-                    .child(Button::new("update-retry").label("Retry").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx))))
+                    .child(button("update-retry").label("Retry").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx))))
                     .into_any_element(),
             ),
             _ => self.update_status().map(|s| div().child(s).into_any_element()),
@@ -213,7 +214,7 @@ impl Shell {
             .text_color(c(theme::MUTED))
             .children(status)
             .child(div().flex_1())
-            .child(Button::new("about-open").label("About & credits").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.open_about(cx))))
+            .child(button("about-open").label("About & credits").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.open_about(cx))))
             .child(div().text_color(c(theme::FAINT)).child(format!("v{}", update::current())))
     }
 
@@ -237,7 +238,7 @@ impl Shell {
     pub(crate) fn render_about(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let about = self.about.as_ref()?;
         let link = |id: &'static str, label: &'static str, url: String| {
-            Button::new(id).label(label).xsmall().ghost().on_click(move |_, _, cx| cx.open_url(&url))
+            button(id).label(label).xsmall().ghost().on_click(move |_, _, cx| cx.open_url(&url))
         };
         let heading = |text: &'static str| div().mt_2().text_xs().font_weight(FontWeight::BOLD).text_color(c(theme::MUTED)).child(text);
 
@@ -325,7 +326,7 @@ impl Shell {
                                 .child(link("about-github", "GitHub", format!("https://github.com/{}", update::REPO)))
                                 .child(link("about-issues", "Report an issue", format!("https://github.com/{}/issues/new", update::REPO)))
                                 .child(link("about-releases", "Release notes", "https://gitchrono.com/changelog/".into()))
-                                .child(Button::new("about-check").label("Check for updates").xsmall().ghost().disabled(matches!(self.update, UpdateState::Checking | UpdateState::Downloading(..))).on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))),
+                                .child(button("about-check").label("Check for updates").xsmall().ghost().disabled_if(matches!(self.update, UpdateState::Checking | UpdateState::Downloading(..))).on_click(cx.listener(|this, _, _, cx| this.check_for_updates(true, cx)))),
                         )
                         .children(self.update_status().map(|s| div().text_xs().text_color(c(theme::MUTED)).child(s)))
                         .children(match &self.git {
@@ -352,7 +353,7 @@ impl Shell {
                                 .child(div().text_color(c(theme::MUTED)).child(*what))
                                 .on_click(move |_, _, cx| cx.open_url(&url))
                         }))
-                        .child(div().flex().justify_end().child(Button::new("about-close").label("Close").small().on_click(cx.listener(|this, _, _, cx| {
+                        .child(div().flex().justify_end().child(button("about-close").label("Close").small().on_click(cx.listener(|this, _, _, cx| {
                             this.about = None;
                             cx.notify();
                         })))),

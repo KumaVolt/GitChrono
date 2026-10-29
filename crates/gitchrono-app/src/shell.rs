@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
@@ -17,6 +17,7 @@ use gitchrono_core::summary::{self, RepoSummary};
 use crate::projects::{self, Session};
 use crate::theme::{self, c};
 use crate::workspace::{Workspace, WorkspaceEvent};
+use crate::ui::{ButtonExt as _, button};
 
 actions!(gitchrono, [NewTab, CloseTab, NextTab, PrevTab, OpenAny, ToggleTerminal, OpenPalette, FindCommits, Undo, Redo, OpenSettings]);
 
@@ -475,6 +476,7 @@ impl Shell {
                                 .id(("tab-close", i))
                                 .px_1()
                                 .rounded_sm()
+                                .cursor_pointer()
                                 .text_color(c(theme::FAINT))
                                 .hover(|d| d.text_color(c(theme::TEXT)).bg(c(theme::HOVER)))
                                 .child("×")
@@ -625,7 +627,7 @@ impl Shell {
             RowRemove::Hide(_) => "Hide from this folder's list (nothing is deleted)",
             RowRemove::Restore(_) => "Show in this folder's list again",
         });
-        let remove_button = Button::new("row-remove")
+        let remove_button = button("row-remove")
             .label(if restore { "restore" } else { "×" })
             .xsmall()
             .ghost()
@@ -746,14 +748,14 @@ impl Shell {
                     .flex()
                     .gap_2()
                     .child(
-                        Button::new("home-open")
+                        button("home-open")
                             .label("Open repository or folder…")
                             .primary()
                             .on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))),
                     )
-                    .child(Button::new("home-clone").label("Clone…").on_click(cx.listener(|this, _, window, cx| this.open_clone(window, cx))))
+                    .child(button("home-clone").label("Clone…").on_click(cx.listener(|this, _, window, cx| this.open_clone(window, cx))))
                     .child(
-                        Button::new("home-init")
+                        button("home-init")
                             .label("New repository…")
                             .on_click(cx.listener(|this, _, window, cx| this.prompt_init(window, cx))),
                     )
@@ -788,7 +790,7 @@ impl Shell {
             let mut actions = Vec::new();
             if !hidden.is_empty() {
                 actions.push(
-                    Button::new(("folder-hidden", fi))
+                    button(("folder-hidden", fi))
                         .label(format!("{} hidden · {}", hidden.len(), if revealing { "hide" } else { "show" }))
                         .xsmall()
                         .ghost()
@@ -800,11 +802,11 @@ impl Shell {
                 );
             }
             actions.extend([
-                Button::new(("folder-open-all", fi))
+                button(("folder-open-all", fi))
                     .label("Open all")
                     .xsmall()
                     .ghost()
-                    .disabled(open_all.is_empty() || open_all.len() > 20)
+                    .disabled_if(open_all.is_empty() || open_all.len() > 20)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
                         for path in &open_all {
@@ -817,7 +819,7 @@ impl Shell {
                         this.activate(last, window, cx);
                     }))
                     .into_any_element(),
-                Button::new(("folder-remove", fi))
+                button(("folder-remove", fi))
                     .label("Remove")
                     .xsmall()
                     .ghost()
@@ -887,9 +889,9 @@ impl Shell {
                                 .flex()
                                 .justify_end()
                                 .gap_2()
-                                .child(Button::new("confirm-cancel").label("Cancel").small().ghost().on_click(cx.listener(move |this, _, _, cx| cancel(this, cx))))
+                                .child(button("confirm-cancel").label("Cancel").small().ghost().on_click(cx.listener(move |this, _, _, cx| cancel(this, cx))))
                                 .child(
-                                    Button::new("confirm-ok")
+                                    button("confirm-ok")
                                         .label(confirm.confirm.clone())
                                         .small()
                                         .danger()

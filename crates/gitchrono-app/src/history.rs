@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use gitchrono_core::{BlameLine, FileCommit};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -12,6 +12,7 @@ use gpui_kit::*;
 use crate::theme::{self, c};
 use crate::views::relative_time;
 use crate::workspace::{DiffSource, Workspace};
+use crate::ui::button;
 
 const HISTORY_LIMIT: usize = 2000;
 const BLAME_ROW: f32 = 20.;
@@ -112,12 +113,12 @@ impl Workspace {
                         div()
                             .flex()
                             .gap_2()
-                            .child(Button::new("history-blame").label("Blame").xsmall().ghost().on_click(cx.listener(
+                            .child(button("history-blame").label("Blame").xsmall().ghost().on_click(cx.listener(
                                 move |this, _, _, cx| this.show_blame(path.clone(), cx),
                             )))
                             .child(div().flex_1())
                             .child(
-                                Button::new("history-close")
+                                button("history-close")
                                     .label("Close")
                                     .xsmall()
                                     .ghost()
@@ -166,7 +167,7 @@ impl Workspace {
             .border_color(c(theme::BORDER))
             .child(div().text_xs().text_color(c(theme::FAINT)).child("BLAME"))
             .child(div().flex_1().min_w_0().truncate().text_sm().font_weight(FontWeight::BOLD).child(blame.path.clone()))
-            .child(Button::new("blame-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.close_blame(cx))));
+            .child(button("blame-close").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| this.close_blame(cx))));
         let list = uniform_list(
             "blame",
             lines.len(),
