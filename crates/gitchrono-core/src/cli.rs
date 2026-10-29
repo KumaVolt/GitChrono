@@ -10,6 +10,7 @@ use anyhow::{Result, bail};
 use crate::diff::{ApplyMode, parse_patch};
 use crate::model::*;
 use crate::repo::Repo;
+use crate::undo::StashEdit;
 
 #[derive(Debug, thiserror::Error)]
 #[error("git {command} failed: {stderr}")]
@@ -571,6 +572,55 @@ impl Repo {
 
     pub fn stash_drop(&self, index: usize) -> Result<()> {
         self.git(&["stash", "drop", &format!("stash@{{{index}}}")]).map(drop)
+    }
+
+    /// Give stash@{index} a new message, keeping its place in the list. Git
+    /// has no command for this: the stash commit is rewritten with the new
+    /// message (same tree, parents and dates) and put back where it was.
+    pub fn rename_stash(&self, index: usize, message: &str) -> Result<StashEdit> {
+        let message = message.trim();
+        if message.is_empty() {
+            bail!("stash message is empty");
+        }
+        let stash = self.stashes()?.into_iter().nth(index).ok_or_else(|| anyhow::anyhow!("there is no stash@{{{index}}}"))?;
+        let raw = self.git(&["cat-file", "commit", &stash.target])?;
+        let headers = raw.split_once("\n\n").map_or(raw.as_str(), |(h, _)| h);
+        let file = std::env::temp_dir().join(format!("gitchrono-stash-{}-{}", std::process::id(), stash.target));
+        std::fs::write(&file, format!("{headers}\n\n{message}\n"))?;
+        let written = self.git(&["hash-object", "-t", "commit", "-w", &file.to_string_lossy()]);
+        let _ = std::fs::remove_file(&file);
+        let edit = StashEdit {
+            old_target: stash.target,
+            old_message: stash.message,
+            new_target: written?.trim().to_string(),
+            // The reflog holds one line: what `git stash list` shows.
+            new_message: message.lines().next().unwrap_or_default().to_string(),
+        };
+        self.replace_stash(index, &edit.new_target, &edit.new_message)?;
+        Ok(edit)
+    }
+
+    /// Swap the stash at `index` for `target`, keeping the order: the entries
+    /// above it are dropped with it and stored back, oldest first.
+    pub(crate) fn replace_stash(&self, index: usize, target: &str, message: &str) -> Result<()> {
+        let stashes = self.stashes()?;
+        if index >= stashes.len() {
+            bail!("there is no stash@{{{index}}}");
+        }
+        let store = |s: &Stash| {
+            let (target, message) = if s.index == index { (target, message) } else { (s.target.as_str(), s.message.as_str()) };
+            self.git(&["stash", "store", "-m", message, target])
+        };
+        for dropped in 0..=index {
+            if let Err(e) = self.git(&["stash", "drop", "-q", "stash@{0}"]) {
+                // Put back what's gone already, as it was.
+                for s in stashes[..dropped].iter().rev() {
+                    self.git(&["stash", "store", "-m", &s.message, &s.target])?;
+                }
+                return Err(e);
+            }
+        }
+        stashes[..=index].iter().rev().try_for_each(|s| store(s).map(drop))
     }
 
     pub fn merge(&self, target: &str) -> Result<()> {

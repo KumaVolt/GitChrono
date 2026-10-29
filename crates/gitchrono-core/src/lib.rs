@@ -24,7 +24,7 @@ pub use model::*;
 pub use rebase::{RebaseAction, RebaseStep};
 pub use repo::Repo;
 pub use stash::StashSwap;
-pub use undo::{RefState, UndoEntry};
+pub use undo::{RefState, StashEdit, UndoChange, UndoEntry};
 
 /// Everything the main view needs, loaded in one go off the UI thread.
 #[derive(Debug, Clone, Default)]

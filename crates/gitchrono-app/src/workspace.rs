@@ -70,6 +70,20 @@ pub enum Suggest {
     StashMessage,
 }
 
+/// The selected commit's (or stash's) message, edited in place in the details panel.
+pub struct MessageEdit {
+    pub id: String,
+    /// The stash being renamed, when `id` is a stash.
+    pub stash: Option<usize>,
+    pub summary: Entity<InputState>,
+    pub description: Entity<TextareaState>,
+    /// Whether a remote already has the commit (`None` while checking).
+    pub pushed: Option<bool>,
+    /// Save was pressed on a pushed commit: ask once more before rewriting it.
+    pub confirm_pushed: bool,
+    _enter: Subscription,
+}
+
 pub struct Prompt {
     pub title: SharedString,
     pub message: Option<SharedString>,
@@ -196,6 +210,9 @@ pub struct Workspace {
     pub blame: Option<crate::history::BlameView>,
     pub undo_stack: Vec<UndoEntry>,
     pub redo_stack: Vec<UndoEntry>,
+    pub message_edit: Option<MessageEdit>,
+    /// Commit to select after the next reload (a reworded commit's new id).
+    reselect: Option<String>,
     pub sidebar_filter: Entity<InputState>,
     _sidebar_filter_sub: Subscription,
     _activation: Subscription,
@@ -277,6 +294,8 @@ impl Workspace {
             blame: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            message_edit: None,
+            reselect: None,
             sidebar_filter,
             _sidebar_filter_sub: sidebar_filter_sub,
             _activation: activation,
@@ -574,10 +593,10 @@ impl Workspace {
     /// Reload refs, history and status off the main thread, keeping the selection.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.clone() else { return };
-        let selected_id = match self.selection {
+        let selected_id = self.reselect.take().or_else(|| match self.selection {
             Selection::Commit(i) => self.snap.commits.get(i).map(|c| c.id.clone()),
             _ => None,
-        };
+        });
         let filter = self.ref_filter.clone();
         let task = cx.background_spawn(async move {
             let snap = repo.snapshot_filtered(LOG_LIMIT, &filter)?;
@@ -617,6 +636,10 @@ impl Workspace {
                         };
                         if let Selection::Commit(i) = this.selection {
                             this.load_commit_files(i, cx);
+                        }
+                        // Saved (its id changed) or gone: either way the editor is done.
+                        if this.message_edit.as_ref().is_some_and(|e| this.selected_commit().is_none_or(|c| c.id != e.id)) {
+                            this.message_edit = None;
                         }
                         if let Some(command) = this.debug_terminal.take() {
                             this.debug_run_in_terminal(command, cx);
@@ -707,7 +730,7 @@ impl Workspace {
         self.error = None;
         self.notice = None;
         cx.notify();
-        let soft = label == "Committing";
+        let soft = label == "Committing" || label == "Rewording";
         let task = cx.background_spawn(async move {
             let before = if record { repo.ref_state().ok() } else { None };
             let result = op(&repo);
@@ -794,6 +817,7 @@ impl Workspace {
 
     pub fn select_row(&mut self, row: usize, cx: &mut Context<Self>) {
         let wip = self.has_wip();
+        self.message_edit = None;
         self.selection = if wip && row == 0 { Selection::Wip } else { Selection::Commit(row - usize::from(wip)) };
         self.diff = None;
         if let Selection::Commit(i) = self.selection {
@@ -1124,6 +1148,116 @@ impl Workspace {
                 this.file_multi.1.clear();
             }
         });
+    }
+
+    /// Start editing the selected commit's message (or stash's) in the details panel.
+    pub fn edit_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(repo), Some(commit)) = (self.repo.clone(), self.selected_commit()) else { return };
+        let stash = self.snap.refs.stashes.iter().find(|s| s.target == commit.id).map(|s| s.index);
+        if stash.is_none() && commit.parents.len() > 1 {
+            self.error = Some("Merge commits can't be reworded: rewriting one would flatten the merge.".into());
+            cx.notify();
+            return;
+        }
+        let id = commit.id.clone();
+        let (summary_text, body) = (commit.summary.clone(), commit.body.trim().to_string());
+        let summary = cx.new(|cx| InputState::new(window, cx).placeholder(if stash.is_some() { "Stash message" } else { "Commit summary" }).default_value(summary_text));
+        let description = cx.new(|cx| TextareaState::new(window, cx).placeholder("Description"));
+        description.update(cx, |d, cx| d.set_value(body, window, cx));
+        summary.update(cx, |i, cx| i.focus(window, cx));
+        let enter = cx.subscribe_in(&summary, window, |this, _, ev: &InputEvent, _, cx| {
+            if let InputEvent::PressEnter { .. } = ev {
+                this.save_message_edit(cx);
+            }
+        });
+        self.message_edit =
+            Some(MessageEdit { id: id.clone(), stash, summary, description, pushed: stash.map(|_| false), confirm_pushed: false, _enter: enter });
+        if stash.is_none() {
+            let task = cx.background_spawn(async move { repo.is_pushed(&id).unwrap_or(false) });
+            cx.spawn(async move |this, cx| {
+                let pushed = task.await;
+                this.update(cx, |this, cx| {
+                    if let Some(edit) = &mut this.message_edit {
+                        edit.pushed = Some(pushed);
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    /// Rename the stash at `index` from its row's menu.
+    pub fn edit_stash_message(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(target) = self.snap.refs.stashes.iter().find(|s| s.index == index).map(|s| s.target.clone()) {
+            self.select_commit_id(&target, cx);
+            self.edit_message(window, cx);
+        }
+    }
+
+    pub fn cancel_message_edit(&mut self, cx: &mut Context<Self>) {
+        self.message_edit = None;
+        cx.notify();
+    }
+
+    /// Reword the commit (or rename the stash). A pushed commit asks first.
+    pub fn save_message_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(edit) = &mut self.message_edit else { return };
+        let summary = edit.summary.read(cx).value().trim().to_string();
+        let body = edit.description.read(cx).value().trim().to_string();
+        if summary.is_empty() {
+            return;
+        }
+        let message = if body.is_empty() { summary } else { format!("{summary}\n\n{body}") };
+        match (edit.stash, edit.pushed) {
+            (Some(index), _) => {
+                let done = Arc::new(std::sync::Mutex::new(None));
+                let result = done.clone();
+                self.run_inner(
+                    "Renaming stash".into(),
+                    Change::Refs,
+                    false,
+                    cx,
+                    move |r| {
+                        *result.lock().unwrap() = Some(r.rename_stash(index, &message)?);
+                        Ok(())
+                    },
+                    move |this, ok| {
+                        if let Some(stash_edit) = done.lock().unwrap().take().filter(|_| ok) {
+                            this.reselect = Some(stash_edit.new_target.clone());
+                            this.record_undo(UndoEntry::stash("Renaming stash", stash_edit));
+                        }
+                    },
+                );
+            }
+            (None, None) => {}
+            (None, Some(true)) if !edit.confirm_pushed => {
+                edit.confirm_pushed = true;
+                cx.notify();
+            }
+            (None, Some(_)) => {
+                let id = edit.id.clone();
+                let done = Arc::new(std::sync::Mutex::new(None));
+                let result = done.clone();
+                self.run_inner(
+                    "Rewording".into(),
+                    Change::Refs,
+                    true,
+                    cx,
+                    move |r| {
+                        *result.lock().unwrap() = Some(r.reword(&id, &message)?);
+                        Ok(())
+                    },
+                    move |this, ok| {
+                        if let Some(new_id) = done.lock().unwrap().take().filter(|_| ok) {
+                            this.reselect = Some(new_id);
+                        }
+                    },
+                );
+            }
+        }
     }
 
     pub fn selected_commit(&self) -> Option<&Commit> {

@@ -84,6 +84,13 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) ->
                 });
             })
         })
+        .item({
+            let id = id.clone();
+            item("Edit message…", ws, move |this, window, cx| {
+                this.select_commit_id(&id, cx);
+                this.edit_message(window, cx);
+            })
+        })
         .separator()
         .item(op_item("Cherry-pick commit", "Cherry-picking", Change::Refs, ws, id.clone(), |r, id| r.cherry_pick(id)))
         .item(op_item("Revert commit", "Reverting", Change::Refs, ws, id.clone(), |r, id| r.revert(id)))
@@ -194,6 +201,7 @@ pub fn ref_menu(menu: PopupMenu, ws: &Ws, name: &str, kind: RefKind, current: Op
         RefKind::Stash => menu
             .item(item("Apply stash", ws, move |this, _, cx| this.apply_stash(index, false, cx)))
             .item(item("Pop stash", ws, move |this, _, cx| this.apply_stash(index, true, cx)))
+            .item(item("Rename stash…", ws, move |this, window, cx| this.edit_stash_message(index, window, cx)))
             .separator()
             .item(item("Drop stash…", ws, move |this, window, cx| {
                 this.confirm("Drop stash", format!("Permanently drop stash@{{{index}}}?"), "Drop", "Dropping", window, cx, move |r| {

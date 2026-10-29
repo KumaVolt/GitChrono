@@ -2,7 +2,7 @@
 
 use std::process::Stdio;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 
 use crate::repo::Repo;
 
@@ -42,10 +42,11 @@ pub struct RebaseStep {
 }
 
 impl Repo {
-    /// Commits after `base` up to HEAD, oldest first, ready to edit.
+    /// Commits after `base` up to HEAD, oldest first, ready to edit; an
+    /// empty `base` means the whole history (`--root`).
     /// Fails when the range contains merges (they'd be flattened).
     pub fn rebase_plan(&self, base: &str) -> Result<Vec<RebaseStep>> {
-        let range = format!("{base}..HEAD");
+        let range = if base.is_empty() { "HEAD".to_string() } else { format!("{base}..HEAD") };
         if !self.git(&["rev-list", "--merges", &range])?.trim().is_empty() {
             bail!("the commits after {} include merges, which interactive rebase would flatten", &base[..base.len().min(7)]);
         }
@@ -86,7 +87,7 @@ impl Repo {
         let todo_path = dir.join("todo");
         std::fs::write(&todo_path, todo)?;
         let output = crate::gitbin::git_command()
-            .args(["rebase", "-i", "--autostash", base])
+            .args(["rebase", "-i", "--autostash", if base.is_empty() { "--root" } else { base }])
             .current_dir(self.root())
             // git runs `$GIT_SEQUENCE_EDITOR <todo file>`: overwrite it with ours.
             .env("GIT_SEQUENCE_EDITOR", format!("cp {}", shell_quote(&todo_path.to_string_lossy())))
@@ -100,6 +101,46 @@ impl Repo {
             bail!("rebase stopped: {}", String::from_utf8_lossy(&output.stderr).trim());
         }
         Ok(())
+    }
+
+    /// Give `commit` a new message. HEAD is amended in place (staged changes
+    /// stay staged, not committed); an older commit on the current branch is
+    /// reworded by rebasing the commits after it, which get new ids.
+    /// Returns the reworded commit's new id.
+    pub fn reword(&self, commit: &str, message: &str) -> Result<String> {
+        let message = message.trim();
+        if message.is_empty() {
+            bail!("commit message is empty");
+        }
+        let id = self.git(&["rev-parse", "--verify", &format!("{commit}^{{commit}}")])?.trim().to_string();
+        let short = &id[..id.len().min(7)];
+        // `<id> <parent>...`
+        let parents: Vec<String> = self.git(&["rev-list", "--parents", "-n1", &id])?.split_whitespace().skip(1).map(str::to_string).collect();
+        if parents.len() > 1 {
+            bail!("{short} is a merge commit; rewording it would flatten the merge");
+        }
+        let head = self.git(&["rev-parse", "-q", "--verify", "HEAD"])?.trim().to_string();
+        if id == head {
+            self.git(&["commit", "--amend", "--only", "--allow-empty", "-m", message])?;
+            return Ok(self.git(&["rev-parse", "HEAD"])?.trim().to_string());
+        }
+        if self.git(&["merge-base", "--is-ancestor", &id, "HEAD"]).is_err() {
+            bail!("{short} isn't on the current branch; check it out to reword it");
+        }
+        let base = parents.first().map_or("", String::as_str);
+        let mut plan = self.rebase_plan(base)?;
+        let step = plan.iter_mut().find(|s| s.id == id).context("commit not found in the rebase plan")?;
+        step.action = RebaseAction::Reword;
+        step.message = message.to_string();
+        let after = plan.iter().rev().position(|s| s.id == id).unwrap_or_default();
+        self.interactive_rebase(base, &plan)?;
+        Ok(self.git(&["rev-parse", &format!("HEAD~{after}")])?.trim().to_string())
+    }
+
+    /// Whether a remote-tracking branch already contains `commit`, so
+    /// rewriting it means a force push.
+    pub fn is_pushed(&self, commit: &str) -> Result<bool> {
+        Ok(!self.git(&["for-each-ref", "--contains", commit, "--format=%(refname)", "refs/remotes"])?.trim().is_empty())
     }
 }
 
