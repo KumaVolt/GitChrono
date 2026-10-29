@@ -88,12 +88,22 @@ fn ref_badge(label: &RefLabel, color: Hsla) -> Div {
 /// A toolbar button: icon over a small label. The icon takes the button's text
 /// color, so it dims with the label when the button is disabled.
 fn tool_button(id: &'static str, icon: ToolIcon, label: SharedString) -> Button {
+    counted_tool_button(id, icon, label, None)
+}
+
+/// A toolbar button with a count after its label, such as Pull's "↓2", in
+/// the given color.
+fn counted_tool_button(id: &'static str, icon: ToolIcon, label: SharedString, count: Option<(String, u32)>) -> Button {
+    let accessible: SharedString = match &count {
+        Some((n, _)) => format!("{label} {n}").into(),
+        None => label.clone(),
+    };
     Button::new(id)
         .ghost()
         .small()
         .h(px(42.))
         .min_w(px(44.))
-        .accessibility_label(label.clone())
+        .accessibility_label(accessible)
         .child(
             div()
                 .flex()
@@ -101,7 +111,15 @@ fn tool_button(id: &'static str, icon: ToolIcon, label: SharedString) -> Button 
                 .items_center()
                 .gap_1()
                 .child(Icon::new(icon).size(px(18.)))
-                .child(div().text_xs().line_height(px(14.)).child(label)),
+                .child(
+                    div()
+                        .flex()
+                        .gap_1()
+                        .text_xs()
+                        .line_height(px(14.))
+                        .child(label)
+                        .when_some(count, |d, (n, color)| d.child(div().text_color(c(color)).child(n))),
+                ),
         )
 }
 
@@ -283,12 +301,15 @@ impl Workspace {
                     this.load_pull_requests(cx);
                     this.run("Fetching", Change::Refs, cx, |r| r.fetch());
                 })))
+                // Same colors as the projects overview: ahead is green, behind amber.
                 .child(
-                    tool("pull", ToolIcon::Pull, if st.behind > 0 { format!("Pull ↓{}", st.behind) } else { "Pull".into() })
+                    counted_tool_button("pull", ToolIcon::Pull, "Pull".into(), (st.behind > 0).then(|| (format!("↓{}", st.behind), theme::WARN)))
+                        .disabled(busy)
                         .on_click(cx.listener(|this, _, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None)))),
                 )
                 .child(
-                    tool("push", ToolIcon::Push, if st.ahead > 0 { format!("Push ↑{}", st.ahead) } else { "Push".into() })
+                    counted_tool_button("push", ToolIcon::Push, "Push".into(), (st.ahead > 0).then(|| (format!("↑{}", st.ahead), theme::ADD)))
+                        .disabled(busy)
                         .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
                 )
                 .child(tool("branch", ToolIcon::Branch, "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
@@ -354,6 +375,62 @@ impl Workspace {
                             cx.notify();
                         }))),
                 )
+            })
+            .when_some(self.no_upstream.clone(), |d, why| {
+                use gitchrono_core::NoUpstream;
+                let mut row = div()
+                    .id("no-upstream")
+                    .px_3()
+                    .py_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .bg(c(theme::WARN).opacity(0.12))
+                    .border_b_1()
+                    .border_color(c(theme::WARN))
+                    .text_xs()
+                    .child(div().flex_1().child(why.to_string()));
+                match &why {
+                    NoUpstream::Track { candidates, .. } => {
+                        for (i, upstream) in candidates.iter().take(3).enumerate() {
+                            let upstream = upstream.clone();
+                            row = row.child(
+                                Button::new(("track-upstream", i)).label(format!("Track {upstream} and pull")).xsmall().when(i == 0, |b| b.primary()).on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        let upstream = upstream.clone();
+                                        this.run("Pulling", Change::Refs, cx, move |r| r.track_and_pull(&upstream));
+                                    }),
+                                ),
+                            );
+                        }
+                    }
+                    NoUpstream::Publish { remotes, .. } => {
+                        for (i, remote) in remotes.iter().take(3).enumerate() {
+                            let label = if remotes.len() == 1 { "Publish this branch".to_string() } else { format!("Publish to {remote}") };
+                            let remote = remote.clone();
+                            row = row.child(Button::new(("publish-branch", i)).label(label).xsmall().when(i == 0, |b| b.primary()).on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    let remote = remote.clone();
+                                    this.run("Publishing", Change::Refs, cx, move |r| r.publish(&remote));
+                                },
+                            )));
+                        }
+                    }
+                    NoUpstream::NoRemote => {
+                        row = row.child(Button::new("no-remote-terminal").label("Open terminal").primary().xsmall().on_click(cx.listener(|this, _, window, cx| {
+                            this.no_upstream = None;
+                            if !this.terminal_open {
+                                this.toggle_terminal(window, cx);
+                            }
+                            cx.notify();
+                        })));
+                    }
+                    NoUpstream::Detached => {}
+                }
+                d.child(row.child(Button::new("no-upstream-dismiss").label("Not now").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                    this.no_upstream = None;
+                    cx.notify();
+                }))))
             })
             .when_some(self.error.clone(), |d, err| {
                 d.child(

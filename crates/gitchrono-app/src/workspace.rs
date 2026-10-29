@@ -158,6 +158,8 @@ pub struct Workspace {
     /// Something done on the user's behalf worth knowing (changes stashed to
     /// make room for a stash); cleared by the next operation.
     pub notice: Option<SharedString>,
+    /// Set when a pull or push found no upstream; the banner offers the fix.
+    pub no_upstream: Option<gitchrono_core::NoUpstream>,
     /// Clear the commit message on the next render (needs the window).
     pub reset_commit_form: bool,
     /// AI explanation of a commit: (commit id, text).
@@ -252,6 +254,7 @@ impl Workspace {
             reset_commit_form: false,
             push_behind: None,
             notice: None,
+            no_upstream: None,
             copied_sha: None,
             message_scroll: ScrollHandle::new(),
             explanation_scroll: ScrollHandle::new(),
@@ -761,6 +764,7 @@ impl Workspace {
         self.busy = Some(format!("{label}…").into());
         self.error = None;
         self.notice = None;
+        self.no_upstream = None;
         cx.notify();
         let soft = label == "Committing" || label == "Rewording";
         let task = cx.background_spawn(async move {
@@ -782,7 +786,10 @@ impl Workspace {
                 this.busy = None;
                 let ok = result.is_ok();
                 if let Err(e) = result {
-                    this.error = Some(format!("{e:#}").into());
+                    match e.downcast::<gitchrono_core::NoUpstream>() {
+                        Ok(why) => this.no_upstream = Some(why),
+                        Err(e) => this.error = Some(format!("{e:#}").into()),
+                    }
                 }
                 if let Some(entry) = entry {
                     this.record_undo(entry);
