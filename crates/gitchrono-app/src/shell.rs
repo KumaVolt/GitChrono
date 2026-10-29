@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::{Disableable as _, Sizable as _};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
