@@ -6,7 +6,10 @@
 
 Static HTML so search engines read every release. The Pages workflow runs it
 before each deploy (GITHUB_TOKEN raises the API rate limit), and the release
-workflow triggers that deploy, so a new release shows up on its own.
+workflow triggers that deploy, so a new release shows up on its own. It also
+stamps the deploy with release data: softwareVersion in the homepage JSON-LD
+and each sitemap <lastmod> (last commit to the page, or the newest release for
+/changelog), so Google sees when pages really change.
 """
 import datetime
 import html
@@ -14,12 +17,14 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import urllib.request
 
 REPO = "KumaVolt/GitChrono"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "site" / "changelog" / "index.html"
+SITE = "https://gitchrono.com/"
 # Sections left out of the changelog because /download covers them.
 SKIP_SECTIONS = {"install", "installation", "downloads"}
 
@@ -154,6 +159,38 @@ def page(releases):
     return template.replace("{{RELEASES}}", body).replace("{{UPDATED}}", datetime.date.today().isoformat())
 
 
+def stamp_sitemap(xml, dates):
+    """Sets each <url>'s <lastmod> to dates[loc], where given."""
+    def one(m):
+        date = dates.get(m.group(2))
+        return m.group(0) if not date else re.sub(r"<lastmod>[^<]*</lastmod>", f"<lastmod>{date}</lastmod>", m.group(0))
+    return re.sub(r"<url>(\s*<loc>([^<]+)</loc>.*?)</url>", one, xml, flags=re.S)
+
+
+def last_commit_date(*paths):
+    """YYYY-MM-DD of the last commit touching paths ("" without git history)."""
+    try:
+        return subprocess.run(["git", "log", "-1", "--format=%cs", "--", *paths], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    except OSError:
+        return ""
+
+
+def stamp(releases):
+    stable = [r for r in releases if not r.get("prerelease")]
+    index = ROOT / "site" / "index.html"
+    if stable:
+        version = stable[0]["tag_name"].lstrip("v")
+        index.write_text(re.sub(r'"softwareVersion": "[^"]*"', f'"softwareVersion": "{version}"', index.read_text()))
+    sitemap = ROOT / "site" / "sitemap.xml"
+    dates = {}
+    for loc in re.findall(r"<loc>([^<]+)</loc>", sitemap.read_text()):
+        page = "site/" + loc.removeprefix(SITE) + "index.html"
+        dates[loc] = last_commit_date(page)
+    newest = max((r["published_at"][:10] for r in releases), default="")
+    dates[SITE + "changelog/"] = max(newest, last_commit_date("scripts/changelog.template.html", "scripts/build-changelog.py"))
+    sitemap.write_text(stamp_sitemap(sitemap.read_text(), {k: v for k, v in dates.items() if v}))
+
+
 def test():
     md = "> [!WARNING]\n> **Alpha.** Keep backups.\n\n## What's new\n\n**Graph**\n- Date order, like `git log`\n  and GitKraken\n- See [docs](https://x.y/z)\n\n## Install\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n**Full Changelog**: https://github.com/a/b/compare/v1...v2"
     h = markdown(md)
@@ -166,6 +203,9 @@ def test():
     assert "<code>&lt;b&gt;</code>" in inline("`<b>`") and "&lt;script&gt;" in inline("<script>")
     t = markdown("| A | B |\n|---|---|\n| 1 | `x` |")
     assert t == "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td><code>x</code></td></tr></tbody></table>", t
+    xml = "<urlset>\n  <url>\n    <loc>https://a/</loc>\n    <lastmod>2020-01-01</lastmod>\n  </url>\n  <url>\n    <loc>https://a/b/</loc>\n    <lastmod>2020-01-01</lastmod>\n  </url>\n</urlset>"
+    x = stamp_sitemap(xml, {"https://a/b/": "2026-10-27"})
+    assert x == xml.replace("<lastmod>2020-01-01</lastmod>\n  </url>\n</urlset>", "<lastmod>2026-10-27</lastmod>\n  </url>\n</urlset>"), x
     print("ok")
 
 
@@ -176,4 +216,5 @@ if __name__ == "__main__":
         OUT.parent.mkdir(parents=True, exist_ok=True)
         releases = fetch_releases()
         OUT.write_text(page(releases))
+        stamp(releases)
         print(f"wrote {OUT.relative_to(ROOT)} ({len(releases)} releases)")
