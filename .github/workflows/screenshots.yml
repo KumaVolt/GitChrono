@@ -1,0 +1,55 @@
+name: Screenshots
+
+# Retakes the README screenshots (docs/screenshots/, see scripts/screenshots.sh)
+# for every release tag, or when run manually, and commits them to main when they
+# changed. macOS only: gpui renders with Metal, which Linux runners don't have.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  screenshots:
+    runs-on: macos-14
+    steps:
+      # Always main, also for a tag: the images are committed back there.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Take screenshots
+        run: ./scripts/screenshots.sh docs/screenshots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/screenshots/*.png
+          if-no-files-found: error
+
+      # Pushes made with GITHUB_TOKEN don't start other workflows, so this
+      # commit doesn't trigger CI or a website deploy.
+      - name: Commit changed screenshots
+        run: |
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "Screenshots unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update README screenshots for ${GITHUB_REF_NAME}"
+          git push origin HEAD:main
