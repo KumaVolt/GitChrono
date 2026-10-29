@@ -1630,7 +1630,8 @@ impl Workspace {
                             .primary()
                             .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
                     )
-                    .child(Button::new("welcome-clone").label("Clone…").on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::CloneRequested)))),
+                    .child(Button::new("welcome-clone").label("Clone…").on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::CloneRequested))))
+                    .child(Button::new("welcome-init").label("New Repository…").on_click(cx.listener(|this, _, _, cx| this.prompt_init(cx)))),
             )
             .when_some(self.error.clone(), |d, e| d.child(div().text_sm().text_color(c(theme::DEL)).child(e)))
     }

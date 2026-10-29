@@ -148,6 +148,18 @@ fn status_from_xy(c: u8) -> Option<FileStatus> {
 }
 
 impl Repo {
+    /// `git init` in `path` (created if missing) and open it. A folder that
+    /// already holds a repository is opened as it is. New repositories start
+    /// on `main` unless `init.defaultBranch` names another branch.
+    pub fn init(path: &Path) -> Result<Self> {
+        if !path.join(".git").exists() {
+            std::fs::create_dir_all(path)?;
+            let configured = git(path, &["config", "--get", "init.defaultBranch"]).is_ok();
+            git(path, if configured { &["init", "-q"] } else { &["init", "-q", "-b", "main"] })?;
+        }
+        Self::open(path)
+    }
+
     pub(crate) fn git(&self, args: &[&str]) -> Result<String> {
         git(self.root(), args)
     }
@@ -382,13 +394,21 @@ impl Repo {
         self.git(&["add", "-A"]).map(drop)
     }
 
+    /// Before the first commit there is no HEAD to restore the index from.
+    fn unborn(&self) -> bool {
+        self.git(&["rev-parse", "-q", "--verify", "HEAD"]).is_err()
+    }
+
     pub fn unstage(&self, paths: &[&str]) -> Result<()> {
-        let mut args = vec!["restore", "--staged", "--"];
+        let mut args = if self.unborn() { vec!["rm", "--cached", "-r", "-q", "--"] } else { vec!["restore", "--staged", "--"] };
         args.extend_from_slice(paths);
         self.git(&args).map(drop)
     }
 
     pub fn unstage_all(&self) -> Result<()> {
+        if self.unborn() {
+            return self.git(&["rm", "--cached", "-r", "-q", "--ignore-unmatch", ":/"]).map(drop);
+        }
         self.git(&["restore", "--staged", ":/"]).map(drop)
     }
 

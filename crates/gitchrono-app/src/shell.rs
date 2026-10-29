@@ -10,6 +10,7 @@ use gpui_kit::component::{Disableable as _, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use gitchrono_core::Repo;
 use gitchrono_core::gitbin::{self, GitCheck};
 use gitchrono_core::summary::{self, RepoSummary};
 
@@ -95,6 +96,8 @@ pub struct Shell {
     summaries: HashMap<PathBuf, Result<RepoSummary, SharedString>>,
     filter: Entity<InputState>,
     _filter_sub: Subscription,
+    /// Why the last action started from the home tab (creating a repository) failed.
+    error: Option<SharedString>,
     /// Keeps key bindings working when no input has focus.
     focus: FocusHandle,
     _keystrokes: Subscription,
@@ -126,7 +129,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), show_hidden: Vec::new(), confirm: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), show_hidden: Vec::new(), confirm: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);
@@ -179,6 +182,7 @@ impl Shell {
         let sub = cx.subscribe_in(&view, window, |this, _, event: &WorkspaceEvent, window, cx| match event {
             WorkspaceEvent::OpenRequested => this.prompt_open(window, cx),
             WorkspaceEvent::CloneRequested => this.open_clone(window, cx),
+            WorkspaceEvent::InitRequested => this.prompt_init(window, cx),
             WorkspaceEvent::OpenPath(path) => this.open_path(path.clone(), window, cx),
             WorkspaceEvent::WorktreeRemoved(path) => {
                 let gone = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -195,6 +199,7 @@ impl Shell {
     /// of repositories on the home tab.
     pub fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let path = path.canonicalize().unwrap_or(path);
+        self.error = None;
         if !projects::is_repo(&path) {
             if path.is_dir() {
                 self.session.add_folder(&path);
@@ -243,6 +248,33 @@ impl Shell {
                 })
                 .ok();
             }
+        })
+        .detach();
+    }
+
+    /// Pick (or make, with the panel's New Folder button) a folder and run
+    /// `git init` in it, then open it. A folder that already is a repository
+    /// is just opened.
+    pub fn prompt_init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Create Repository".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = paths.await else { return };
+            let Some(path) = paths.pop() else { return };
+            let target = path.clone();
+            let result = cx.background_executor().spawn(async move { Repo::init(&target).map(drop) }).await;
+            this.update_in(cx, |this, window, cx| match result {
+                Ok(()) => this.open_path(path, window, cx),
+                Err(e) => {
+                    this.error = Some(format!("Couldn't create a repository in {}: {e:#}", path.display()).into());
+                    cx.notify();
+                }
+            })
+            .ok();
         })
         .detach();
     }
@@ -720,8 +752,14 @@ impl Shell {
                             .on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))),
                     )
                     .child(Button::new("home-clone").label("Clone…").on_click(cx.listener(|this, _, window, cx| this.open_clone(window, cx))))
+                    .child(
+                        Button::new("home-init")
+                            .label("New repository…")
+                            .on_click(cx.listener(|this, _, window, cx| this.prompt_init(window, cx))),
+                    )
                     .child(div().flex_1().child(Input::new(&self.filter))),
-            );
+            )
+            .when_some(self.error.clone(), |d, e| d.child(div().mt_2().text_sm().text_color(c(theme::DEL)).child(e)));
 
         if !recent.is_empty() {
             let key = PathBuf::new();
