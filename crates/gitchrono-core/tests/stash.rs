@@ -154,3 +154,18 @@ fn applying_on_a_clean_tree_is_plain_apply() {
     assert_eq!(read(&dir, "a.txt"), "stashed\n");
     assert!(stash_list(&dir).is_empty());
 }
+
+#[test]
+fn a_conflicting_pop_says_why() {
+    let (dir, repo) = repo("conflict-reason");
+    git(&dir, &["checkout", "-qb", "other"]).unwrap();
+    git(&dir, &["rm", "-q", "a.txt"]).unwrap();
+    git(&dir, &["commit", "-qm", "drop a"]).unwrap();
+    git(&dir, &["checkout", "-q", "main"]).unwrap();
+    stash(&dir, "a.txt", "stashed\n", "wanted");
+    git(&dir, &["checkout", "-q", "other"]).unwrap();
+    // git reports the conflict on stdout only; the error must still say it.
+    let err = format!("{:#}", repo.apply_stash(0, true).unwrap_err());
+    assert!(err.contains("CONFLICT"), "{err}");
+    assert_eq!(stash_list(&dir), ["On main: wanted"]);
+}

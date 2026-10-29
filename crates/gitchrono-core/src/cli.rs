@@ -21,6 +21,16 @@ pub struct GitError {
 }
 
 impl GitError {
+    /// From a failed run. Some commands report on stdout instead (a `stash pop`
+    /// or `merge` conflict says CONFLICT there and nothing on stderr).
+    pub(crate) fn from_output(command: String, output: &std::process::Output) -> Self {
+        let mut stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            stderr = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+        Self { command, stderr, code: output.status.code() }
+    }
+
     /// A push the remote refused because it has commits we don't (not a
     /// permission or network problem).
     pub fn is_push_rejected(&self) -> bool {
@@ -75,8 +85,7 @@ pub fn git(cwd: &Path, args: &[&str]) -> Result<String> {
         .stdin(Stdio::null())
         .output()?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(GitError { command: args.join(" "), stderr, code: output.status.code() }.into());
+        return Err(GitError::from_output(args.join(" "), &output).into());
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }

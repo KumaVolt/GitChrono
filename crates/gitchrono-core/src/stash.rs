@@ -166,8 +166,7 @@ impl Repo {
             .stdin(Stdio::null())
             .output()?;
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(GitError { command: args.join(" "), stderr, code: output.status.code() }.into());
+            return Err(GitError::from_output(args.join(" "), &output).into());
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
