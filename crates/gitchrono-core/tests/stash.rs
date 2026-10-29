@@ -167,5 +167,6 @@ fn a_conflicting_pop_says_why() {
     // git reports the conflict on stdout only; the error must still say it.
     let err = format!("{:#}", repo.apply_stash(0, true).unwrap_err());
     assert!(err.contains("CONFLICT"), "{err}");
+    assert!(!err.contains("Untracked files"), "only the CONFLICT lines, not git status: {err}");
     assert_eq!(stash_list(&dir), ["On main: wanted"]);
 }

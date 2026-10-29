@@ -22,11 +22,14 @@ pub struct GitError {
 
 impl GitError {
     /// From a failed run. Some commands report on stdout instead (a `stash pop`
-    /// or `merge` conflict says CONFLICT there and nothing on stderr).
+    /// or `merge` conflict says CONFLICT there and nothing on stderr), followed
+    /// by a full `git status`; only the CONFLICT lines are kept then.
     pub(crate) fn from_output(command: String, output: &std::process::Output) -> Self {
         let mut stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
-            stderr = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let conflicts: Vec<&str> = stdout.lines().filter(|l| l.starts_with("CONFLICT")).collect();
+            stderr = if conflicts.is_empty() { stdout.trim().to_string() } else { conflicts.join("\n") };
         }
         Self { command, stderr, code: output.status.code() }
     }
