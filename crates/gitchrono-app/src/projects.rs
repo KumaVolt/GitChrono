@@ -24,6 +24,10 @@ pub struct Session {
     /// Home-screen groups the user collapsed: project folders, or "" for Recent.
     #[serde(default)]
     pub collapsed: Vec<PathBuf>,
+    /// Repositories removed from a project folder's list, by folder. They stay
+    /// on disk; rescans skip them.
+    #[serde(default)]
+    pub hidden: std::collections::BTreeMap<PathBuf, Vec<PathBuf>>,
     /// Show authors' profile pictures (Gravatar). Opt-in: lookups send hashed emails.
     #[serde(default)]
     pub gravatar: bool,
@@ -58,6 +62,24 @@ impl Session {
         self.recent.retain(|p| p != repo);
         self.recent.insert(0, repo.to_path_buf());
         self.recent.truncate(MAX_RECENT);
+    }
+
+    pub fn forget_recent(&mut self, repo: &Path) {
+        self.recent.retain(|p| p != repo);
+    }
+
+    pub fn is_hidden(&self, folder: &Path, repo: &Path) -> bool {
+        self.hidden.get(folder).is_some_and(|h| h.iter().any(|p| p == repo))
+    }
+
+    pub fn set_hidden(&mut self, folder: &Path, repo: &Path, hidden: bool) {
+        let list = self.hidden.entry(folder.to_path_buf()).or_default();
+        list.retain(|p| p != repo);
+        if hidden {
+            list.push(repo.to_path_buf());
+        } else if list.is_empty() {
+            self.hidden.remove(folder);
+        }
     }
 
     pub fn add_folder(&mut self, folder: &Path) {
@@ -208,6 +230,20 @@ mod tests {
             scan_repos(&root).iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(found, ["a", "group/b", "wt"]);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn hidden_repos_are_per_folder_and_survive_a_round_trip() {
+        let mut s = Session::default();
+        s.set_hidden(Path::new("/f"), Path::new("/f/a"), true);
+        s.set_hidden(Path::new("/f"), Path::new("/f/a"), true);
+        assert_eq!(s.hidden[Path::new("/f")].len(), 1);
+        assert!(s.is_hidden(Path::new("/f"), Path::new("/f/a")));
+        assert!(!s.is_hidden(Path::new("/g"), Path::new("/f/a")));
+        let back: Session = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+        s.set_hidden(Path::new("/f"), Path::new("/f/a"), false);
+        assert!(s.hidden.is_empty());
     }
 
     #[test]
