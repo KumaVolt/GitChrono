@@ -300,10 +300,13 @@ impl Workspace {
             })
             .child(div().flex_1())
             .when_some(self.busy.clone(), |bar, msg| bar.child(div().text_xs().text_color(c(theme::MUTED)).child(msg)))
-            .child(
-                tool_button("ai-settings-open", ToolIcon::Ai, if self.ai.is_some() { "AI" } else { "Set up AI" }.into())
-                    .on_click(cx.listener(|this, _, window, cx| this.open_ai_settings(window, cx))),
-            )
+            // Once AI works the button goes; AI settings stay in Settings and the palette.
+            .when(!cx.global::<crate::ai::AiSetup>().ready, |bar| {
+                bar.child(
+                    tool_button("ai-settings-open", ToolIcon::Ai, "Set up AI".into())
+                        .on_click(cx.listener(|this, _, window, cx| this.open_ai_settings(window, cx))),
+                )
+            })
     }
 
     fn render_banners(&self, cx: &mut Context<Self>) -> impl IntoElement {

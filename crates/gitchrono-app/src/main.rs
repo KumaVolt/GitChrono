@@ -44,6 +44,7 @@ fn main() {
         shell::init(cx);
         palette::init(cx);
         workspace::init(cx);
+        ai::init(cx);
         avatars::init(projects::Session::load().gravatar_enabled(), cx);
         update::cleanup();
 
