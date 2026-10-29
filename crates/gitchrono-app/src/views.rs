@@ -155,6 +155,13 @@ fn status_letter(change: &FileChange) -> Div {
     div().w(px(16.)).flex_none().text_xs().font_weight(FontWeight::BOLD).text_color(c(color)).child(change.status.letter())
 }
 
+/// gpui-kit's input frame tracks a focus handle of its own, so a press on its
+/// padding (inside the border, outside the text) focuses the frame: the focus
+/// ring lights up but keystrokes go nowhere. Hand such presses to the editor.
+fn focus_editor_on_press(editor: FocusHandle, input: impl IntoElement) -> Div {
+    div().on_mouse_down(MouseButton::Left, move |_, window, cx| editor.focus(window, cx)).child(input)
+}
+
 fn section_header(title: &str, count: usize) -> Div {
     div()
         .flex_1()
@@ -1345,8 +1352,11 @@ impl Workspace {
                     .gap_2()
                     .border_t_1()
                     .border_color(c(theme::BORDER))
-                    .child(Input::new(&self.summary))
-                    .child(Textarea::new(&self.description).h(px(90.)))
+                    .child(focus_editor_on_press(self.summary.focus_handle(cx), Input::new(&self.summary)))
+                    .child(focus_editor_on_press(
+                        self.description.focus_handle(cx),
+                        Textarea::new(&self.description).h(px(90.)),
+                    ))
                     .when_some(self.ai_usage.clone(), |d, usage| {
                         d.child(div().text_xs().text_color(c(theme::MUTED)).child(format!("Last AI request: {usage}")))
                     })
