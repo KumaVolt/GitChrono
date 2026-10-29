@@ -11,6 +11,7 @@ mod github;
 mod graph_paint;
 mod highlight;
 mod history;
+mod icons;
 mod menus;
 mod message;
 mod palette;
@@ -33,7 +34,7 @@ use shell::Shell;
 fn main() {
     let path = std::env::args().nth(1).map(std::path::PathBuf::from);
 
-    gpui_kit::application().run(move |cx| {
+    gpui_kit::application().with_assets(icons::Assets).run(move |cx| {
         gpui_kit::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
         // Scrollable boxes (like a long commit message) show their scrollbar.

@@ -6,6 +6,7 @@ use gitchrono_core::{Commit, FileChange, FileStatus, Operation, RefKind, RefLabe
 use gitchrono_graph::Row;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
+use gpui_kit::component::Icon;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{Disableable as _, Sizable as _};
@@ -14,6 +15,7 @@ use gpui_kit::*;
 
 use crate::file_tree::{self, TreeRow};
 use crate::graph_paint::{self, Node, ROW_HEIGHT};
+use crate::icons::ToolIcon;
 use crate::menus;
 use crate::theme::{self, c};
 use crate::watcher::Change;
@@ -80,6 +82,26 @@ fn ref_badge(label: &RefLabel, color: Hsla) -> Div {
         .text_color(c(theme::TEXT))
         .when(label.current, |d| d.font_weight(FontWeight::BOLD))
         .child(div().truncate().child(format!("{prefix}{}", label.name)))
+}
+
+/// A toolbar button: icon over a small label. The icon takes the button's text
+/// color, so it dims with the label when the button is disabled.
+fn tool_button(id: &'static str, icon: ToolIcon, label: SharedString) -> Button {
+    Button::new(id)
+        .ghost()
+        .small()
+        .h(px(42.))
+        .min_w(px(44.))
+        .accessibility_label(label.clone())
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_1()
+                .child(Icon::new(icon).size(px(18.)))
+                .child(div().text_xs().line_height(px(14.)).child(label)),
+        )
 }
 
 /// "10/23/2026 @ 5:15 PM" in local time.
@@ -203,10 +225,10 @@ impl Workspace {
         let st = &self.status;
         let busy = self.busy.is_some();
         let branch = st.branch.clone().unwrap_or_else(|| "detached HEAD".into());
-        let tool = |id: &'static str, label: String| Button::new(id).label(label).ghost().small().disabled(busy);
+        let tool = |id: &'static str, icon: ToolIcon, label: String| tool_button(id, icon, label.into()).disabled(busy);
 
         div()
-            .h(px(44.))
+            .h(px(52.))
             .flex_none()
             .flex()
             .items_center()
@@ -216,69 +238,63 @@ impl Workspace {
             .border_b_1()
             .border_color(c(theme::BORDER))
             .child(
+                // Gives way first when the window is narrow, so the buttons keep their size.
                 div()
                     .flex()
                     .flex_col()
+                    .min_w(px(80.))
                     .mr_4()
                     .child(
                         div()
                             .text_xs()
                             .text_color(c(theme::MUTED))
+                            .truncate()
                             .child(self.repo.as_ref().map(|r| r.name()).unwrap_or_else(|| "GitChrono".into())),
                     )
-                    .child(div().text_sm().font_weight(FontWeight::BOLD).child(branch)),
+                    .child(div().text_sm().font_weight(FontWeight::BOLD).truncate().child(branch)),
             )
             .when(self.repo.is_some(), |bar| {
                 let undo = self.undo_stack.last().map(|e| e.label.clone());
                 let redo = self.redo_stack.last().map(|e| e.label.clone());
                 bar.child(
-                    Button::new("undo")
-                        .label("↶")
-                        .ghost()
-                        .small()
+                    tool_button("undo", ToolIcon::Undo, "Undo".into())
                         .tooltip(undo.clone().map_or("Nothing to undo".to_string(), |l| format!("Undo {} (⌘Z)", l.to_lowercase())))
                         .disabled(undo.is_none() || busy)
                         .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
                 )
                 .child(
-                    Button::new("redo")
-                        .label("↷")
-                        .ghost()
-                        .small()
+                    tool_button("redo", ToolIcon::Redo, "Redo".into())
                         .tooltip(redo.clone().map_or("Nothing to redo".to_string(), |l| format!("Redo {} (⌘⇧Z)", l.to_lowercase())))
                         .disabled(redo.is_none() || busy)
                         .on_click(cx.listener(|this, _, _, cx| this.redo(cx))),
                 )
             })
-            .child(Button::new("open").label("Open").ghost().small().on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))))
+            .child(tool_button("open", ToolIcon::Open, "Open".into()).on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))))
             .when(self.repo.is_some(), |bar| {
-                bar.child(tool("fetch", "Fetch".into()).on_click(cx.listener(|this, _, _, cx| {
+                bar.child(tool("fetch", ToolIcon::Fetch, "Fetch".into()).on_click(cx.listener(|this, _, _, cx| {
                     this.load_pull_requests(cx);
                     this.run("Fetching", Change::Refs, cx, |r| r.fetch());
                 })))
                 .child(
-                    tool("pull", if st.behind > 0 { format!("Pull ↓{}", st.behind) } else { "Pull".into() })
+                    tool("pull", ToolIcon::Pull, if st.behind > 0 { format!("Pull ↓{}", st.behind) } else { "Pull".into() })
                         .on_click(cx.listener(|this, _, _, cx| this.run("Pulling", Change::Refs, cx, |r| r.pull(None)))),
                 )
                 .child(
-                    tool("push", if st.ahead > 0 { format!("Push ↑{}", st.ahead) } else { "Push".into() })
+                    tool("push", ToolIcon::Push, if st.ahead > 0 { format!("Push ↑{}", st.ahead) } else { "Push".into() })
                         .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
                 )
-                .child(tool("branch", "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
-                .child(tool("stash", "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
-                .child(tool("pop", "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
+                .child(tool("branch", ToolIcon::Branch, "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
+                .child(tool("stash", ToolIcon::Stash, "Stash".into()).disabled(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
+                .child(tool("pop", ToolIcon::Pop, "Pop".into()).disabled(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.run("Popping stash", Change::Refs, cx, |r| r.stash_pop(0)),
                 )))
-                .child(div().mx_1().w_px().h(px(18.)).bg(c(theme::BORDER)))
-                .child(tool("terminal", "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
+                .child(div().mx_1().w_px().h(px(32.)).bg(c(theme::BORDER)))
+                .child(tool("terminal", ToolIcon::Terminal, "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
             })
             .child(div().flex_1())
             .when_some(self.busy.clone(), |bar, msg| bar.child(div().text_xs().text_color(c(theme::MUTED)).child(msg)))
             .child(
-                Button::new("ai-settings-open")
-                    .label(if self.ai.is_some() { "✨ AI" } else { "✨ Set up AI" })
-                    .ghost()
-                    .small()
+                tool_button("ai-settings-open", ToolIcon::Ai, if self.ai.is_some() { "AI" } else { "Set up AI" }.into())
                     .on_click(cx.listener(|this, _, window, cx| this.open_ai_settings(window, cx))),
             )
     }
