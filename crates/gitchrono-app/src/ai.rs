@@ -13,6 +13,27 @@ use gpui_kit::*;
 use crate::theme::{self, c};
 use crate::workspace::{Selection, Suggest, Workspace};
 
+/// The saved AI configuration, shared by every tab so they all agree on it.
+pub struct AiSetup {
+    /// `None` until a provider is saved.
+    pub config: Option<AiConfig>,
+    /// A provider is chosen and has the key it needs.
+    pub ready: bool,
+}
+
+impl Global for AiSetup {}
+
+impl AiSetup {
+    fn new(config: Option<AiConfig>) -> Self {
+        let ready = config.as_ref().is_some_and(|c| !c.needs_key() || c.key().is_some());
+        Self { config, ready }
+    }
+}
+
+pub fn init(cx: &mut App) {
+    cx.set_global(AiSetup::new(AiConfig::load().filter(|c| c.enabled)));
+}
+
 pub struct AiSettings {
     preset: usize,
     model: Entity<InputState>,
@@ -90,7 +111,7 @@ impl Workspace {
         })();
         match result {
             Ok(()) => {
-                self.ai = Some(config);
+                cx.set_global(AiSetup::new(Some(config)));
                 self.ai_settings = None;
             }
             Err(e) => s.error = Some(format!("{e:#}").into()),
@@ -104,6 +125,7 @@ impl Workspace {
             Ok(()) => s.has_stored_key = false,
             Err(e) => s.error = Some(format!("{e:#}").into()),
         }
+        cx.set_global(AiSetup::new(self.ai.clone()));
         self.refresh_key_placeholder(window, cx);
         cx.notify();
     }

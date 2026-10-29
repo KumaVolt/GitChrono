@@ -494,6 +494,29 @@ impl Shell {
                 .child(Button::new("prefs-gravatar-link").label("Gravatar ↗").xsmall().ghost().on_click(|_, _, cx| cx.open_url("https://gravatar.com")))
                 .child(switch("prefs-gravatar", self.session.gravatar_enabled(), cx, |s, v| s.profile_pictures = Some(v))),
             )
+            .child({
+                // The AI dialog belongs to a repository tab, so it needs one open.
+                let ai = cx.global::<crate::ai::AiSetup>();
+                let hint = match &ai.config {
+                    Some(config) if ai.ready => format!("{} · {}", config.preset().map_or(config.provider.as_str(), |p| p.name), config.model),
+                    Some(_) => "The provider still needs an API key.".into(),
+                    None => "Commit messages, branch names and explanations with your own provider key.".into(),
+                };
+                let tab = self.active_workspace().is_some();
+                let hint = if tab { hint } else { format!("{hint} Open a repository tab to change it.") };
+                row("AI", hint.into()).child(
+                    Button::new("prefs-ai")
+                        .label(if ai.ready { "Change…" } else { "Set up…" })
+                        .xsmall()
+                        .ghost()
+                        .disabled(!tab)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let Some(ws) = this.active_workspace().cloned() else { return };
+                            this.close_settings(cx);
+                            ws.update(cx, |ws, cx| ws.open_ai_settings(window, cx));
+                        })),
+                )
+            })
     }
 }
 

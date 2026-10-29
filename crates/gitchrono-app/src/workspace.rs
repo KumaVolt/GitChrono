@@ -175,6 +175,8 @@ pub struct Workspace {
     pub amend: bool,
     pub list_scroll: UniformListScrollHandle,
     pub ai: Option<gitchrono_ai::AiConfig>,
+    /// Picks up AI setup saved or cleared in any tab.
+    _ai_setup: Subscription,
     pub ai_settings: Option<crate::ai::AiSettings>,
     pub ai_busy: Option<SharedString>,
     /// Token usage of the last AI request, shown so costs stay visible.
@@ -266,7 +268,11 @@ impl Workspace {
             description,
             amend: false,
             list_scroll: UniformListScrollHandle::new(),
-            ai: gitchrono_ai::AiConfig::load().filter(|c| c.enabled),
+            ai: cx.global::<crate::ai::AiSetup>().config.clone(),
+            _ai_setup: cx.observe_global::<crate::ai::AiSetup>(|this, cx| {
+                this.ai = cx.global::<crate::ai::AiSetup>().config.clone();
+                cx.notify();
+            }),
             ai_settings: None,
             ai_busy: None,
             ai_usage: None,
