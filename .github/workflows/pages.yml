@@ -24,8 +24,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history: sitemap <lastmod> comes from each page's last commit
       - uses: actions/configure-pages@v5
-      - name: Changelog from GitHub releases
+      - name: Changelog, sitemap dates and version from GitHub releases
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/build-changelog.py --test && python3 scripts/build-changelog.py

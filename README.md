@@ -1,7 +1,7 @@
 # GitChrono
 
 A fast, native Git client — 100% Rust, GPU-rendered with
-[gpui](https://gpui-kit.com).
+[gpui](https://gpui-kit.com). Website and downloads: **[gitchrono.com](https://gitchrono.com)**.
 
 > [!WARNING]
 > **GitChrono is in alpha. Use at your own risk.** Expect bugs and breaking changes.
