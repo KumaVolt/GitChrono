@@ -117,6 +117,7 @@ impl Shell {
     /// Reopens the last session's tabs and folders (once git is available).
     fn restore(&mut self, open: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
         self.tabs.clear();
+        self.tabs.push(Tab::Home);
         for path in self.session.tabs.clone().iter().filter(|p| projects::is_repo(p)) {
             self.push_repo(path.clone(), window, cx);
         }
@@ -126,9 +127,6 @@ impl Shell {
         self.active = self.session.active.min(self.tabs.len().saturating_sub(1));
         if let Some(path) = open {
             self.open_path(path, window, cx);
-        }
-        if self.tabs.is_empty() {
-            self.tabs.push(Tab::Home);
         }
         self.activate(self.active, window, cx);
     }
@@ -167,11 +165,7 @@ impl Shell {
             if path.is_dir() {
                 self.session.add_folder(&path);
                 self.scan(path, cx);
-                let home = self.tabs.iter().position(|t| matches!(t, Tab::Home)).unwrap_or_else(|| {
-                    self.tabs.push(Tab::Home);
-                    self.tabs.len() - 1
-                });
-                self.activate(home, window, cx);
+                self.activate(0, window, cx);
             }
             return;
         }
@@ -180,16 +174,7 @@ impl Shell {
             self.activate(i, window, cx);
             return;
         }
-        // A home tab turns into the repository it opened.
-        let index = if matches!(self.tabs.get(self.active), Some(Tab::Home)) {
-            let i = self.push_repo(path, window, cx);
-            let tab = self.tabs.pop().unwrap();
-            self.tabs[self.active] = tab;
-            let _ = i;
-            self.active
-        } else {
-            self.push_repo(path, window, cx)
-        };
+        let index = self.push_repo(path, window, cx);
         self.activate(index, window, cx);
     }
 
@@ -248,24 +233,19 @@ impl Shell {
         cx.notify();
     }
 
+    /// The home tab (always the first) stays open.
     pub(crate) fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if index >= self.tabs.len() {
+        if index >= self.tabs.len() || matches!(self.tabs[index], Tab::Home) {
             return;
         }
         self.tabs.remove(index);
-        if self.tabs.is_empty() {
-            self.tabs.push(Tab::Home);
-        }
         let next = if index < self.active || self.active >= self.tabs.len() { self.active.saturating_sub(1) } else { self.active };
         self.activate(next, window, cx);
     }
 
+    /// The home tab doubles as the new-tab page.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let i = self.tabs.iter().position(|t| matches!(t, Tab::Home)).unwrap_or_else(|| {
-            self.tabs.push(Tab::Home);
-            self.tabs.len() - 1
-        });
-        self.activate(i, window, cx);
+        self.activate(0, window, cx);
     }
 
     pub(crate) fn active_workspace(&self) -> Option<&Entity<Workspace>> {
@@ -343,8 +323,7 @@ impl Shell {
                 Tab::Home => None,
             })
             .collect();
-        let repo_index = self.tabs[..self.active.min(self.tabs.len())].iter().filter(|t| matches!(t, Tab::Repo { .. })).count();
-        self.session.active = repo_index;
+        self.session.active = self.active;
         self.session.save();
     }
 
@@ -365,15 +344,15 @@ impl Shell {
             .overflow_x_scroll()
             .children(self.tabs.iter().enumerate().map(|(i, tab)| {
                 let selected = i == self.active && self.settings.is_none();
+                let home = matches!(tab, Tab::Home);
                 let label = match tab {
-                    Tab::Home => "New tab".to_string(),
+                    Tab::Home => "Home".to_string(),
                     Tab::Repo { path, .. } => projects::display_name(path),
                 };
                 div()
                     .id(("tab", i))
                     .h(px(30.))
-                    .min_w(px(120.))
-                    .max_w(px(220.))
+                    .map(|d| if home { d.flex_none() } else { d.min_w(px(120.)).max_w(px(220.)) })
                     .flex()
                     .items_center()
                     .gap_2()
@@ -384,19 +363,21 @@ impl Shell {
                     .when(selected, |d| d.bg(c(theme::BG)).text_color(c(theme::TEXT)))
                     .when(!selected, |d| d.text_color(c(theme::MUTED)).hover(|d| d.bg(c(theme::HOVER))))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(label))
-                    .child(
-                        div()
-                            .id(("tab-close", i))
-                            .px_1()
-                            .rounded_sm()
-                            .text_color(c(theme::FAINT))
-                            .hover(|d| d.text_color(c(theme::TEXT)).bg(c(theme::HOVER)))
-                            .child("×")
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.close_tab(i, window, cx);
-                            })),
-                    )
+                    .when(!home, |d| {
+                        d.child(
+                            div()
+                                .id(("tab-close", i))
+                                .px_1()
+                                .rounded_sm()
+                                .text_color(c(theme::FAINT))
+                                .hover(|d| d.text_color(c(theme::TEXT)).bg(c(theme::HOVER)))
+                                .child("×")
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.close_tab(i, window, cx);
+                                })),
+                        )
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
             }))
             .child(
