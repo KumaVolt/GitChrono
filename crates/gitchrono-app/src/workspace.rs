@@ -139,6 +139,8 @@ pub struct Workspace {
     /// Set when a push needs the remote's new commits first; the banner
     /// offers "Pull and push".
     pub push_behind: Option<SharedString>,
+    /// Set when a pull or push found no upstream; the banner offers the fix.
+    pub no_upstream: Option<gitchrono_core::NoUpstream>,
     /// Clear the commit message on the next render (needs the window).
     pub reset_commit_form: bool,
     /// AI explanation of a commit: (commit id, text).
@@ -226,6 +228,7 @@ impl Workspace {
             explanation: None,
             reset_commit_form: false,
             push_behind: None,
+            no_upstream: None,
             copied_sha: None,
             message_scroll: ScrollHandle::new(),
             explanation_scroll: ScrollHandle::new(),
@@ -701,6 +704,7 @@ impl Workspace {
         }
         self.busy = Some(format!("{label}…").into());
         self.error = None;
+        self.no_upstream = None;
         cx.notify();
         let soft = label == "Committing";
         let task = cx.background_spawn(async move {
@@ -722,7 +726,10 @@ impl Workspace {
                 this.busy = None;
                 let ok = result.is_ok();
                 if let Err(e) = result {
-                    this.error = Some(format!("{e:#}").into());
+                    match e.downcast::<gitchrono_core::NoUpstream>() {
+                        Ok(why) => this.no_upstream = Some(why),
+                        Err(e) => this.error = Some(format!("{e:#}").into()),
+                    }
                 }
                 if let Some(entry) = entry {
                     this.undo_stack.push(entry);

@@ -26,6 +26,43 @@ impl GitError {
         // "[remote rejected]" (hooks, protected branches) needs a different fix.
         self.command.starts_with("push") && ["[rejected]", "fetch first", "non-fast-forward"].iter().any(|s| self.stderr.contains(s))
     }
+
+    /// A pull with nothing to pull from: no upstream set, or not on a branch.
+    pub fn is_no_upstream(&self) -> bool {
+        self.command.starts_with("pull")
+            && ["no tracking information", "not currently on a branch"].iter().any(|s| self.stderr.contains(s))
+    }
+}
+
+/// Why the current branch has nothing to pull from, and what fixes it. Pull
+/// and push return this as their error, so the caller can offer the fix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoUpstream {
+    Detached,
+    /// Remote branches with the same name, best first: track one, then pull.
+    Track { branch: String, candidates: Vec<String> },
+    /// Remotes (best first), none of which has this branch: publish it.
+    Publish { branch: String, remotes: Vec<String> },
+    NoRemote,
+}
+
+impl std::error::Error for NoUpstream {}
+
+impl std::fmt::Display for NoUpstream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Detached => write!(f, "You're not on a branch, so there's nothing to pull into. Check out a branch first."),
+            Self::Track { branch, candidates } => {
+                let exist = if candidates.len() == 1 { "exists" } else { "exist" };
+                write!(f, "{branch} isn't linked to a remote branch yet, but {} {exist}.", candidates.join(" and "))
+            }
+            Self::Publish { branch, remotes } => {
+                let on = if remotes.len() == 1 { remotes[0].as_str() } else { "any remote" };
+                write!(f, "{branch} isn't on {on} yet, so there's nothing to pull. Publish it to share it.")
+            }
+            Self::NoRemote => write!(f, "This repository has no remote yet. Add one in the terminal with `git remote add origin <url>`, then push."),
+        }
+    }
 }
 
 pub fn git(cwd: &Path, args: &[&str]) -> Result<String> {
@@ -528,9 +565,74 @@ impl Repo {
 
     /// `rebase: None` follows the user's `pull.rebase` setting, merging when
     /// it isn't set (plain `git pull` refuses diverged branches then).
+    /// Fails with [`NoUpstream`] when there's nothing to pull from.
     pub fn pull(&self, rebase: Option<bool>) -> Result<()> {
+        if let Some(why) = self.missing_upstream()? {
+            return Err(why.into());
+        }
         let rebase = rebase.or_else(|| self.git(&["config", "--type=bool", "--get", "pull.rebase"]).ok().map(|v| v.trim() == "true"));
-        self.git(&["pull", if rebase == Some(true) { "--rebase" } else { "--no-rebase" }]).map(drop)
+        self.git(&["pull", if rebase == Some(true) { "--rebase" } else { "--no-rebase" }]).map(drop).map_err(|e| {
+            // Whatever the check above missed (say, an upstream with no remote).
+            match e.downcast_ref::<GitError>().filter(|g| g.is_no_upstream()).and_then(|_| self.missing_upstream().ok().flatten()) {
+                Some(why) => why.into(),
+                None => e,
+            }
+        })
+    }
+
+    /// Why the current branch has nothing to pull from, or `None` when it has
+    /// an upstream. Fetches first if no remote branch of the same name is known.
+    pub fn missing_upstream(&self) -> Result<Option<NoUpstream>> {
+        let status = self.status()?;
+        if status.upstream.is_some() {
+            return Ok(None);
+        }
+        let Some(branch) = status.branch else { return Ok(Some(NoUpstream::Detached)) };
+        let remotes = self.remotes_by_preference()?;
+        if remotes.is_empty() {
+            return Ok(Some(NoUpstream::NoRemote));
+        }
+        let candidates = || {
+            remotes
+                .iter()
+                .map(|r| format!("{r}/{branch}"))
+                .filter(|c| self.git(&["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{c}")]).is_ok())
+                .collect::<Vec<_>>()
+        };
+        let mut found = candidates();
+        if found.is_empty() {
+            // The remote may have it without our knowing; offline, go by what we have.
+            if self.git(&["fetch", "--all", "--quiet"]).is_ok() {
+                found = candidates();
+            }
+        }
+        Ok(Some(if found.is_empty() {
+            NoUpstream::Publish { branch, remotes }
+        } else {
+            NoUpstream::Track { branch, candidates: found }
+        }))
+    }
+
+    /// Remote names, the one to push to by default first: `remote.pushDefault`,
+    /// then `origin`, then the rest.
+    fn remotes_by_preference(&self) -> Result<Vec<String>> {
+        let mut remotes: Vec<String> = self.git(&["remote"])?.lines().map(str::to_string).collect();
+        let preferred = self.git(&["config", "--get", "remote.pushDefault"]).map(|s| s.trim().to_string()).unwrap_or_default();
+        remotes.sort_by_key(|r| (*r != preferred, r.as_str() != "origin"));
+        Ok(remotes)
+    }
+
+    /// Sets the current branch to track `upstream` (`origin/main`), then pulls.
+    pub fn track_and_pull(&self, upstream: &str) -> Result<()> {
+        let branch = self.status()?.branch.ok_or(NoUpstream::Detached)?;
+        self.set_upstream(&branch, upstream)?;
+        self.pull(None)
+    }
+
+    /// Pushes the current branch to `remote` and tracks it there.
+    pub fn publish(&self, remote: &str) -> Result<()> {
+        let branch = self.status()?.branch.ok_or_else(|| anyhow::anyhow!("cannot push a detached HEAD"))?;
+        self.git(&["push", "-u", remote, &branch]).map(drop)
     }
 
     /// Pulls (as `pull(None)`), then pushes: for when the remote moved on.
@@ -545,10 +647,11 @@ impl Repo {
         if force {
             args.push("--force-with-lease");
         }
-        let branch;
+        let (branch, remote);
         if status.upstream.is_none() {
             branch = status.branch.ok_or_else(|| anyhow::anyhow!("cannot push a detached HEAD"))?;
-            args.extend(["-u", "origin", branch.as_str()]);
+            remote = self.remotes_by_preference()?.into_iter().next().ok_or(NoUpstream::NoRemote)?;
+            args.extend(["-u", remote.as_str(), branch.as_str()]);
         }
         self.git(&args).map(drop)
     }
