@@ -77,6 +77,7 @@ fn ref_badge(label: &RefLabel, color: Hsla) -> Div {
         .rounded_sm()
         .border_1()
         .border_color(fg)
+        .when(label.kind == RefKind::Stash, |d| d.border_dashed())
         .bg(fg.opacity(0.15))
         .text_xs()
         .text_color(c(theme::TEXT))
@@ -804,9 +805,11 @@ impl Workspace {
         let index = row - usize::from(wip);
         let commit = &self.snap.commits[index];
         let layout = self.graph.rows[index].clone();
-        let color = theme::lane(layout.color);
+        let stash = commit.refs.iter().any(|r| r.kind == RefKind::Stash);
+        let color = if stash { c(theme::MUTED).into() } else { theme::lane(layout.color) };
         let selected = self.selection == Selection::Commit(index) || self.multi.contains(&index);
         let merge = commit.parents.len() > 1;
+        let stash_lines = self.stash_lines.get(index).copied().unwrap_or(0);
         let dimmed = self.search.as_ref().is_some_and(|s| !s.matches.is_empty() && !s.hit.contains(&index));
         let ws = cx.entity().downgrade();
         let id = commit.id.clone();
@@ -885,7 +888,7 @@ impl Workspace {
             .child({
                 // With profile pictures on, regular commits show the author on the dot.
                 let node_x = graph_paint::node_x(layout.lane);
-                let picture = (!merge && f32::from(gutter) >= node_x + 10. && f32::from(gutter) >= graph_paint::MIN_FULL_GUTTER)
+                let picture = (!merge && !stash && f32::from(gutter) >= node_x + 10. && f32::from(gutter) >= graph_paint::MIN_FULL_GUTTER)
                     .then(|| crate::avatars::for_person(&commit.author_name, &commit.author_email, cx))
                     .flatten();
                 div()
@@ -894,7 +897,19 @@ impl Workspace {
                     .min_w(px(graph_paint::MIN_GUTTER))
                     .h_full()
                     .overflow_hidden()
-                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty() }))
+                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty(), stash, stash_lines }))
+                    // The stash's box holds the toolbar's stash tray.
+                    .when(stash, |d| {
+                        let x = if f32::from(gutter) < graph_paint::MIN_FULL_GUTTER { f32::from(gutter).max(graph_paint::MIN_GUTTER) / 2. } else { node_x };
+                        d.child(
+                            div()
+                                .absolute()
+                                .left(px(x - 5.))
+                                .top(px(graph_paint::ROW_HEIGHT / 2. - 5.))
+                                .text_color(c(theme::MUTED))
+                                .child(Icon::new(ToolIcon::Stash).size(px(10.))),
+                        )
+                    })
                     .when_some(picture, |d, path| {
                         d.child(
                             img(path)
@@ -915,7 +930,8 @@ impl Workspace {
                     .min_w(px(MIN_MESSAGE))
                     .px_2()
                     .truncate()
-                    .text_color(c(if merge { theme::MUTED } else { theme::TEXT }))
+                    .text_color(c(if merge || stash { theme::MUTED } else { theme::TEXT }))
+                    .when(stash, |d| d.italic())
                     .child(commit.summary.clone()),
             )
             .child(div().w(px(150.)).flex_none().px_2().truncate().text_color(c(theme::MUTED)).child(commit.author_name.clone()))
