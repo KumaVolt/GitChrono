@@ -13,10 +13,12 @@ const DIFF_BUDGET: usize = 12_000;
 /// No single file may take more than this unless it's the only one.
 const MIN_FILE_SHARE: usize = 1_500;
 
-const COMMIT_SYSTEM: &str = "You write git commit messages. Reply with the message only: no quotes, no code fences, no commentary.
+// The recent commits we show are subjects only, so the convention-matching
+// rule is scoped to line 1: otherwise models read "no bodies" into them.
+const COMMIT_SYSTEM: &str = "You write git commit messages. Reply with the message only: no quotes, no code fences, no labels like \"Summary:\", no commentary.
 Line 1 is a summary of at most 72 characters in the imperative mood (\"Add\", \"Fix\", not \"Added\").
-If the change needs explaining, add a blank line and a short body (wrapped at 72 columns) that says why, not how. Omit the body for small or obvious changes.
-Match the conventions of the repository's recent commits (prefixes like \"feat:\" or ticket ids, capitalisation, language). If they follow no convention, use plain sentences.
+Then a blank line and a body: one to five short lines or \"- \" bullets, wrapped at 72 columns, saying what changed and why. Leave the body out only for trivial changes such as a typo fix or a version bump.
+Match the summary-line conventions of the repository's recent commits (prefixes like \"feat:\" or ticket ids, capitalisation, language). Those are subjects only, so they say nothing about whether to write a body. If they follow no convention, use plain sentences.
 Never invent details that the diff does not show.";
 
 const BRANCH_SYSTEM: &str = "You name git branches. Reply with one branch name only: lowercase words joined by hyphens, at most 5 words, optionally prefixed with feature/, fix/ or chore/. No quotes or commentary.";
@@ -39,7 +41,7 @@ pub fn commit_message(diff: &str, recent_subjects: &[&str], branch: Option<&str>
     }
     user.push_str("Staged diff:\n");
     user.push_str(&prepare_diff(diff, DIFF_BUDGET));
-    Request { system: COMMIT_SYSTEM, user, max_tokens: 300 }
+    Request { system: COMMIT_SYSTEM, user, max_tokens: 400 }
 }
 
 const EXPLAIN_SYSTEM: &str = "You explain git commits to a developer reviewing history. Reply in plain text, no headings or code fences.
@@ -70,14 +72,43 @@ pub struct CommitMessage {
     pub body: String,
 }
 
-/// Split model output into summary and body, tolerating fences and quotes.
+const SUMMARY_LABELS: &[&str] = &["summary", "subject", "title", "commit message"];
+const BODY_LABELS: &[&str] = &["description", "body", "details"];
+
+/// Split model output into summary and body, tolerating fences, quotes,
+/// a lead-in line ("Here is the commit message:") and "Summary:" /
+/// "Description:" labels.
 pub fn parse_commit_message(text: &str) -> CommitMessage {
     let text = strip_wrapping(text);
     let mut lines = text.lines();
-    let summary = lines.by_ref().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+    let mut summary = "";
+    for line in lines.by_ref() {
+        let line = line.trim();
+        if line.ends_with(':') {
+            continue;
+        }
+        summary = strip_label(line, SUMMARY_LABELS).unwrap_or(line);
+        if !summary.is_empty() {
+            break;
+        }
+    }
     let summary = summary.trim_matches(['"', '`', '\'']).to_string();
-    let body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
+    let mut body: Vec<&str> = lines.collect();
+    if let Some(first) = body.iter_mut().find(|l| !l.trim().is_empty()) {
+        let line: &str = first;
+        if let Some(rest) = strip_label(line.trim(), BODY_LABELS) {
+            *first = rest;
+        }
+    }
+    let body = body.join("\n").trim().to_string();
     CommitMessage { summary, body }
+}
+
+/// What follows a leading `Label:` (or `**Label:**`) when the label is one of `labels`.
+fn strip_label<'a>(line: &'a str, labels: &[&str]) -> Option<&'a str> {
+    let (head, rest) = line.trim_start_matches(['*', '#', ' ']).split_once(':')?;
+    let head = head.trim().trim_end_matches('*');
+    labels.iter().any(|l| head.eq_ignore_ascii_case(l)).then(|| rest.trim_start_matches('*').trim())
 }
 
 /// A model's branch suggestion, made safe for `git branch`.
@@ -94,10 +125,16 @@ pub fn sanitize_ref_name(text: &str) -> String {
     out.split('/').map(|part| part.trim_matches(['-', '.'])).filter(|p| !p.is_empty()).collect::<Vec<_>>().join("/")
 }
 
+/// The contents of the first code fence if there is one (models sometimes
+/// put a sentence before it), else the trimmed text.
 fn strip_wrapping(text: &str) -> &str {
     let text = text.trim();
-    let text = text.strip_prefix("```").map_or(text, |rest| rest.split_once('\n').map_or(rest, |(_, body)| body));
-    text.strip_suffix("```").unwrap_or(text).trim()
+    let Some((_, rest)) = text.split_once("```") else { return text };
+    let rest = match rest.split_once('\n') {
+        Some((tag, body)) if tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => body,
+        _ => rest,
+    };
+    rest.split_once("```").map_or(rest, |(inner, _)| inner).trim()
 }
 
 fn is_noise(path: &str) -> bool {
@@ -256,6 +293,46 @@ mod tests {
         let m = parse_commit_message("\"Fix crash on empty repo\"");
         assert_eq!(m.summary, "Fix crash on empty repo");
         assert!(m.body.is_empty());
+    }
+
+    #[test]
+    fn parses_bodies_from_realistic_replies() {
+        let expected = CommitMessage {
+            summary: "Add commit search".into(),
+            body: "Index subjects and bodies so the search box\nfinds older commits.".into(),
+        };
+        let replies = [
+            // Plain, CRLF and a body with no blank line before it.
+            "Add commit search\n\nIndex subjects and bodies so the search box\nfinds older commits.",
+            "Add commit search\r\n\r\nIndex subjects and bodies so the search box\r\nfinds older commits.\r\n",
+            "Add commit search\nIndex subjects and bodies so the search box\nfinds older commits.",
+            // Fences with a language tag, and after a lead-in sentence.
+            "```text\nAdd commit search\n\nIndex subjects and bodies so the search box\nfinds older commits.\n```",
+            "Here is the commit message:\n\n```\nAdd commit search\n\nIndex subjects and bodies so the search box\nfinds older commits.\n```\n",
+            // Lead-in without a fence.
+            "Commit message:\nAdd commit search\n\nIndex subjects and bodies so the search box\nfinds older commits.",
+            // Labels, inline and on their own line, plain and in markdown bold.
+            "Summary: Add commit search\n\nDescription: Index subjects and bodies so the search box\nfinds older commits.",
+            "**Summary:** Add commit search\n\n**Description:**\nIndex subjects and bodies so the search box\nfinds older commits.",
+            "Subject:\nAdd commit search\n\nBody:\nIndex subjects and bodies so the search box\nfinds older commits.",
+        ];
+        for reply in replies {
+            assert_eq!(parse_commit_message(reply), expected, "{reply:?}");
+        }
+    }
+
+    #[test]
+    fn keeps_conventional_prefixes_and_bullets() {
+        let m = parse_commit_message("fix(ui): keep the description\n\n- Parse labelled replies\n- Ask for a body");
+        assert_eq!(m.summary, "fix(ui): keep the description");
+        assert_eq!(m.body, "- Parse labelled replies\n- Ask for a body");
+    }
+
+    #[test]
+    fn asks_for_a_body() {
+        let request = commit_message(&file("a.rs", "+x"), &["Fix typo"], None);
+        assert!(request.system.contains("Then a blank line and a body"));
+        assert!(!request.system.contains("Omit the body for small or obvious changes"));
     }
 
     #[test]
