@@ -88,6 +88,8 @@ pub struct Prompt {
 pub enum WorkspaceEvent {
     /// The user asked to open another repository (handled by the tab shell).
     OpenRequested,
+    /// The user asked to create a repository with `git init` (handled by the tab shell).
+    InitRequested,
     /// Open this repository or worktree in a tab.
     OpenPath(PathBuf),
     /// A linked worktree was removed; its tab should close.
@@ -336,6 +338,10 @@ impl Workspace {
 
     pub fn prompt_open(&mut self, cx: &mut Context<Self>) {
         cx.emit(WorkspaceEvent::OpenRequested);
+    }
+
+    pub fn prompt_init(&mut self, cx: &mut Context<Self>) {
+        cx.emit(WorkspaceEvent::InitRequested);
     }
 
     /// Tabs in the background skip refreshes and catch up when shown again.

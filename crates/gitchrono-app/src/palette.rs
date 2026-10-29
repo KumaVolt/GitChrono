@@ -139,6 +139,7 @@ impl Shell {
     fn palette_items(&self, cx: &App) -> Vec<Item> {
         let mut items = vec![
             Item::new("Action", "Open repository or folder…", |s, w, cx| s.prompt_open(w, cx)).detail("⌘O"),
+            Item::new("Action", "New repository (git init)…", |s, w, cx| s.prompt_init(w, cx)),
             Item::new("Action", "New tab", |s, w, cx| s.new_tab(w, cx)).detail("⌘T"),
             Item::new("Action", "Close tab", |s, w, cx| {
                 let active = s.active;
