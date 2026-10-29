@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gitchrono_core::{Commit, FileChange, FileStatus, Operation, RefKind, RefLabel};
 use gitchrono_graph::Row;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::Icon;
 use gpui_kit::component::menu::{ContextMenu, ContextMenuExt as _};
@@ -203,19 +204,48 @@ fn focus_editor_on_press(editor: FocusHandle, input: impl IntoElement) -> Div {
     div().on_mouse_down(MouseButton::Left, move |_, window, cx| editor.focus(window, cx)).child(input)
 }
 
+/// An outlined button tinted with one of the theme colors, for the bulk
+/// actions above the staging lists.
+fn tinted_button(id: &'static str, label: impl Into<SharedString>, icon: IconName, color: u32, cx: &App) -> Button {
+    let tint: Hsla = c(color).into();
+    Button::new(id)
+        .label(label)
+        .icon(Icon::new(icon))
+        .xsmall()
+        .outline()
+        .custom(ButtonCustomVariant::new(cx).color(tint).foreground(tint).hover(tint.opacity(0.25)).active(tint.opacity(0.35)))
+        .cursor_pointer()
+}
+
+/// The checked-out branch, as a pill in the accent color.
+fn branch_badge(name: &str) -> Div {
+    let accent: Hsla = c(theme::ACCENT).into();
+    div()
+        .min_w_0()
+        .px_1p5()
+        .h(px(20.))
+        .flex()
+        .items_center()
+        .rounded_sm()
+        .bg(accent.opacity(0.2))
+        .text_xs()
+        .text_color(c(theme::TEXT))
+        .child(div().truncate().child(name.to_string()))
+}
+
+/// A staging list's title with its file count in a pill beside it.
 fn section_header(title: &str, count: usize) -> Div {
     div()
         .flex_1()
         .px_3()
-        .pt_3()
-        .pb_1()
         .flex()
-        .justify_between()
+        .items_center()
+        .gap_1p5()
         .text_xs()
         .font_weight(FontWeight::BOLD)
         .text_color(c(theme::MUTED))
         .child(title.to_uppercase())
-        .child(count.to_string())
+        .child(div().px_1p5().rounded_full().bg(c(theme::BORDER)).text_color(c(theme::TEXT)).child(count.to_string()))
 }
 
 impl Workspace {
@@ -1403,19 +1433,37 @@ impl Workspace {
             }))
     }
 
-    /// Path / Tree switch shared by every file list.
+    /// Path / Tree switch shared by every file list: a segmented control whose
+    /// active segment is outlined in the accent color.
     fn view_switch(&self, id: &'static str, cx: &mut Context<Self>) -> Div {
-        div().flex().flex_none().children([("Path", false), ("Tree", true)].into_iter().enumerate().map(|(i, (label, tree))| {
-            Button::new((id, i))
-                .label(label)
-                .xsmall()
-                .when(self.file_tree == tree, |b| b.primary())
-                .when(self.file_tree != tree, |b| b.ghost())
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.file_tree = tree;
-                    cx.notify();
-                }))
-        }))
+        let segments = [("Path", IconName::List, false), ("Tree", IconName::ListTree, true)];
+        div()
+            .flex()
+            .flex_none()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded_md()
+            .border_1()
+            .border_color(c(theme::BORDER))
+            .bg(c(theme::BG))
+            .children(segments.into_iter().enumerate().map(|(i, (label, icon, tree))| {
+                let active = self.file_tree == tree;
+                let fg: Hsla = c(if active { theme::TEXT } else { theme::MUTED }).into();
+                let tint: Hsla = c(theme::ACCENT).into();
+                Button::new((id, i))
+                    .label(label)
+                    .icon(Icon::new(icon))
+                    .xsmall()
+                    .when(active, |b| {
+                        b.outline().custom(ButtonCustomVariant::new(cx).color(tint).foreground(fg).hover(tint.opacity(0.3)).active(tint.opacity(0.4)))
+                    })
+                    .when(!active, |b| b.custom(ButtonCustomVariant::new(cx).foreground(fg).hover(c(theme::HOVER).into()).active(c(theme::SELECTED).into())))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.file_tree = tree;
+                        cx.notify();
+                    }))
+            }))
     }
 
     /// "Collapse all" / "Expand all" for one list in folder view.
@@ -1427,7 +1475,7 @@ impl Workspace {
             .into_iter()
             .filter_map(|r| if let TreeRow::Dir { path, .. } = r { Some(format!("{prefix}{path}")) } else { None })
             .collect();
-        Button::new((key, 99usize)).label(if any_collapsed { "Expand all" } else { "Collapse all" }).xsmall().ghost().on_click(cx.listener(move |this, _, _, cx| {
+        Button::new((key, 99usize)).label(if any_collapsed { "Expand all" } else { "Collapse all" }).xsmall().ghost().cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
             if any_collapsed {
                 this.collapsed_dirs.retain(|d| !d.starts_with(&prefix));
             } else {
@@ -1455,6 +1503,7 @@ impl Workspace {
                                 .label(if staged { "Unstage" } else { "Stage" })
                                 .xsmall()
                                 .ghost()
+                                .cursor_pointer()
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.stage_files(&under, staged, cx);
@@ -1494,6 +1543,7 @@ impl Workspace {
                         .label(if staged { "Unstage" } else { "Stage" })
                         .xsmall()
                         .ghost()
+                        .cursor_pointer()
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.stage_files(std::slice::from_ref(&change), staged, cx);
@@ -1533,22 +1583,43 @@ impl Workspace {
                     .label(format!("{} {}", if staged { "Unstage" } else { "Stage" }, picked.len()))
                     .xsmall()
                     .primary()
+                    .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| this.stage_files(&picked, staged, cx)))
             })
         };
+        let changes = st.change_count();
         div()
             .flex()
             .flex_col()
             .size_full()
             .child(
                 div()
+                    .flex_none()
+                    .px_3()
+                    .py_2()
                     .flex()
                     .items_center()
+                    .gap_1p5()
+                    .border_b_1()
+                    .border_color(c(theme::BORDER))
+                    .text_sm()
+                    .text_color(c(theme::TEXT))
+                    .child(format!("{changes} file change{} on", if changes == 1 { "" } else { "s" }))
+                    .child(branch_badge(st.branch.as_deref().unwrap_or("detached HEAD")))
+                    .child(div().flex_1())
+                    .child(self.view_switch("staging-view", cx)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
                     .pr_2()
+                    .pt_2p5()
+                    .pb_1p5()
                     .child(section_header("Unstaged files", unstaged.len()))
-                    .child(self.view_switch("staging-view", cx))
                     .children(pick_button("stage-picked", picked_unstaged, false, cx))
-                    .child(Button::new("stage-all").label("Stage all").xsmall().ghost().disabled(unstaged.is_empty()).on_click(
+                    .child(tinted_button("stage-all", "Stage all changes", IconName::ListPlus, theme::ADD, cx).disabled(unstaged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Staging", Change::Status, cx, |r| r.stage_all())),
                     )),
             )
@@ -1557,12 +1628,15 @@ impl Workspace {
                 div()
                     .flex()
                     .items_center()
+                    .gap_1()
                     .pr_2()
+                    .pt_2p5()
+                    .pb_1p5()
                     .border_t_1()
                     .border_color(c(theme::BORDER))
                     .child(section_header("Staged files", st.staged.len()))
                     .children(pick_button("unstage-picked", picked_staged, true, cx))
-                    .child(Button::new("unstage-all").label("Unstage all").xsmall().ghost().disabled(st.staged.is_empty()).on_click(
+                    .child(tinted_button("unstage-all", "Unstage all changes", IconName::ListMinus, theme::DEL, cx).disabled(st.staged.is_empty()).on_click(
                         cx.listener(|this, _, _, cx| this.run("Unstaging", Change::Status, cx, |r| r.unstage_all())),
                     )),
             )

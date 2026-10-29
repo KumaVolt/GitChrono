@@ -1,12 +1,12 @@
-//! Toolbar icons. Most are Lucide icons from gpui-kit's catalog, embedded on
-//! demand; the stash trays are drawn here in the same style.
+//! Toolbar and file-list icons. Most are Lucide icons from gpui-kit's
+//! catalog, embedded on demand; the stash trays are drawn here in the same style.
 
 use std::borrow::Cow;
 
 use gpui_kit::assets::{IconName, IconNamed};
 use gpui_kit::*;
 
-gpui_kit::assets::icon_assets!(Lucide, [FolderOpen, RotateCcw, RotateCw, RefreshCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles]);
+gpui_kit::assets::icon_assets!(Lucide, [FolderOpen, RotateCcw, RotateCw, RefreshCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus]);
 
 const STASH: (&str, &[u8]) = ("icons/gitchrono/stash.svg", include_bytes!("../assets/icons/stash.svg"));
 const STASH_POP: (&str, &[u8]) = ("icons/gitchrono/stash-pop.svg", include_bytes!("../assets/icons/stash-pop.svg"));
