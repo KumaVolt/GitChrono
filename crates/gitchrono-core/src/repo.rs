@@ -66,6 +66,7 @@ impl Repo {
                     upstream: None,
                     ahead: 0,
                     behind: 0,
+                    in_head: false,
                 });
             } else if let Some(name) = full.strip_prefix("refs/remotes/") {
                 if name.ends_with("/HEAD") {
@@ -79,6 +80,7 @@ impl Repo {
                     upstream: None,
                     ahead: 0,
                     behind: 0,
+                    in_head: false,
                 });
             } else if let Some(name) = full.strip_prefix("refs/tags/") {
                 out.tags.push(Tag { name: name.to_string(), target });

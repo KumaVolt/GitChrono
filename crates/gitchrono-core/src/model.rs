@@ -43,6 +43,8 @@ pub struct Branch {
     pub upstream: Option<String>,
     pub ahead: usize,
     pub behind: usize,
+    /// Every commit of this local branch is in HEAD.
+    pub in_head: bool,
 }
 
 #[derive(Debug, Clone)]

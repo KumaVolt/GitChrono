@@ -1,6 +1,6 @@
 //! Drag a branch onto another to merge or rebase.
 
-use gitchrono_core::Repo;
+use gitchrono_core::{RefKind, Repo};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
@@ -10,6 +10,20 @@ use crate::theme::{self, c};
 use crate::watcher::Change;
 use crate::workspace::{Op, Workspace};
 use crate::ui::button;
+
+/// Lets a branch's sidebar row or graph label be dragged; a local branch also
+/// takes drops.
+pub fn branch_drag(el: Stateful<Div>, name: &str, kind: RefKind, cx: &mut Context<Workspace>) -> Stateful<Div> {
+    let dragged = DraggedRef { name: name.to_string() };
+    let target = name.to_string();
+    el.when(matches!(kind, RefKind::Local | RefKind::Remote), |d| {
+        d.on_drag(dragged, |r, _, _, cx| cx.new(|_| DragPreview(r.name.clone().into())))
+    })
+    .when(kind == RefKind::Local, |d| {
+        d.drag_over::<DraggedRef>(|s, _, _, _| s.bg(c(theme::SELECTED)))
+            .on_drop(cx.listener(move |this, dragged: &DraggedRef, _, cx| this.drop_ref(dragged, target.clone(), cx)))
+    })
+}
 
 #[derive(Clone)]
 pub struct DraggedRef {
@@ -61,20 +75,14 @@ impl Workspace {
             options.push((
                 format!("Merge {current} into {target} (checks out {target})").into(),
                 "Merging".into(),
-                op(move |r| {
-                    r.checkout(&t2)?;
-                    r.merge(&s)
-                }),
+                op(move |r| r.merge_into(&s, &t2)),
             ));
         } else {
             let (t1, s1, t2, s2) = (target.clone(), source.clone(), target.clone(), source.clone());
             options.push((
                 format!("Merge {source} into {target} (checks out {target})").into(),
                 "Merging".into(),
-                op(move |r| {
-                    r.checkout(&t1)?;
-                    r.merge(&s1)
-                }),
+                op(move |r| r.merge_into(&s1, &t1)),
             ));
             options.push((
                 format!("Rebase {target} onto {source} (checks out {target})").into(),

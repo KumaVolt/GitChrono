@@ -10,6 +10,9 @@ use crate::workspace::{Op, Workspace};
 
 type Ws = WeakEntity<Workspace>;
 
+/// Space kept around a menu that fills the window.
+const MENU_MARGIN: f32 = 48.;
+
 fn item(
     label: impl Into<SharedString>,
     ws: &Ws,
@@ -40,8 +43,12 @@ fn copy_item(label: &str, ws: &Ws, text: String) -> PopupMenuItem {
     item(label.to_string(), ws, move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone())))
 }
 
-pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) -> PopupMenu {
+pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>, cx: &App) -> PopupMenu {
     let short = id[..7].to_string();
+    let rewrite = ws.upgrade().and_then(|w| {
+        let snap = &w.read(cx).snap;
+        gitchrono_core::rewritable(&snap.commits, snap.refs.head_id.as_deref()?, id)
+    });
     let id = id.to_string();
     let target = current.unwrap_or("HEAD").to_string();
     let reset = |mode: ResetMode, label: &str| {
@@ -98,6 +105,18 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) ->
             let base = id.clone();
             item("Interactive rebase from here…", ws, move |this, window, cx| this.open_rebase_editor(base.clone(), window, cx))
         })
+        .when(rewrite.is_some_and(|r| r.drop), |menu| {
+            let id = id.clone();
+            menu.item(item("Drop commit…", ws, move |this, window, cx| this.drop_commit(id.clone(), window, cx)))
+        })
+        .when(rewrite.is_some_and(|r| r.move_up), |menu| {
+            let id = id.clone();
+            menu.item(item("Move commit up", ws, move |this, window, cx| this.move_commit(id.clone(), true, window, cx)))
+        })
+        .when(rewrite.is_some_and(|r| r.move_down), |menu| {
+            let id = id.clone();
+            menu.item(item("Move commit down", ws, move |this, window, cx| this.move_commit(id.clone(), false, window, cx)))
+        })
         .separator()
         .item(reset(ResetMode::Soft, &format!("Reset {target} here — soft")))
         .item(reset(ResetMode::Mixed, &format!("Reset {target} here — mixed")))
@@ -106,7 +125,28 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>) ->
         .item(copy_item("Copy commit SHA", ws, id.clone()))
 }
 
+/// Right-click on one of several selected commits.
+pub fn multi_menu(menu: PopupMenu, ws: &Ws, cx: &App) -> PopupMenu {
+    let Some(workspace) = ws.upgrade() else { return menu };
+    let workspace = workspace.read(cx);
+    let (n, has_merge, base) = (workspace.multi.len(), workspace.multi_has_merge(), workspace.multi_rebase_base());
+    menu.item(item(format!("Cherry-pick {n} commits"), ws, |this, _, cx| this.cherry_pick_multi(cx)).disabled(has_merge))
+        .item(item(format!("Revert {n} commits"), ws, |this, _, cx| this.revert_multi(cx)).disabled(has_merge))
+        .when_some(base, |menu, base| {
+            menu.item(item("Interactive rebase…", ws, move |this, window, cx| this.open_rebase_editor(base.clone(), window, cx)))
+        })
+        .separator()
+        .item(item("Copy SHAs", ws, |this, _, cx| this.copy_multi_shas(cx)))
+}
+
+/// Interactive rebase of the checked-out branch onto `onto`.
+fn interactive_rebase_item(cur: &str, onto: &str, ws: &Ws) -> PopupMenuItem {
+    let base = onto.to_string();
+    item(format!("Interactive rebase {cur} onto {onto}…"), ws, move |this, window, cx| this.open_rebase_editor(base.clone(), window, cx))
+}
+
 /// `filter`: (hidden, soloed) state of a branch in the graph; `remotes`: where a tag can be pushed.
+/// Branch and `HEAD` labels also offer the commit menu for the commit they point at.
 #[allow(clippy::too_many_arguments)]
 pub fn ref_menu(
     menu: PopupMenu,
@@ -117,27 +157,61 @@ pub fn ref_menu(
     index: usize,
     filter: (bool, bool),
     remotes: &[String],
+    window: &Window,
+    cx: &App,
 ) -> PopupMenu {
     let name = name.to_string();
-    let is_branch = matches!(kind, RefKind::Local | RefKind::Remote) && current != Some(name.as_str());
-    let menu = if is_branch {
+    let workspace = ws.upgrade();
+    let refs = workspace.as_ref().map(|w| &w.read(cx).snap.refs);
+    let branch = refs.and_then(|r| match kind {
+        RefKind::Local => r.local.iter().find(|b| b.name == name),
+        RefKind::Remote => r.remote.iter().find(|b| b.name == name),
+        _ => None,
+    });
+    let head = refs.and_then(|r| r.head_id.as_deref());
+    let tip = if kind == RefKind::Head { head } else { branch.map(|b| b.target.as_str()) };
+    if let (RefKind::Head, Some(tip)) = (kind, tip) {
+        return commit_menu(menu, ws, tip, current, cx);
+    }
+    let merged = branch.is_some_and(|b| b.in_head);
+    let upstream = branch.and_then(|b| b.upstream.clone());
+    let on_github = workspace.as_ref().is_some_and(|w| w.read(cx).pull_requests.is_some());
+    let menu = if matches!(kind, RefKind::Local | RefKind::Remote) {
         let (h, s) = (name.clone(), name.clone());
-        menu.item(item(if filter.0 { "Show in graph" } else { "Hide in graph" }, ws, move |this, _, cx| this.toggle_hidden(&h, cx)))
-            .item(item(if filter.1 { "Stop soloing" } else { "Solo in graph" }, ws, move |this, _, cx| this.toggle_solo(&s, cx)))
-            .separator()
+        // The checked-out branch always shows, so hiding it would do nothing.
+        menu.when(current != Some(name.as_str()), |menu| {
+            menu.item(item(if filter.0 { "Show in graph" } else { "Hide in graph" }, ws, move |this, _, cx| this.toggle_hidden(&h, cx)))
+        })
+        .item(item(if filter.1 { "Stop soloing" } else { "Solo in graph" }, ws, move |this, _, cx| this.toggle_solo(&s, cx)))
+        .separator()
     } else {
         menu
     };
     let cur = current.unwrap_or("HEAD").to_string();
-    match kind {
+    let menu = match kind {
         RefKind::Local | RefKind::Head => {
             let is_current = current == Some(name.as_str());
             let mut menu = menu;
             if !is_current {
+                menu = menu.item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout(n)));
+                if let Some(checked_out) = current.filter(|_| merged && tip != head) {
+                    let (target, source) = (name.clone(), checked_out.to_string());
+                    menu = menu.item(item(format!("Fast-forward {name} to {checked_out}"), ws, move |this, _, cx| {
+                        let (target, source) = (target.clone(), source.clone());
+                        this.run("Fast-forwarding", Change::Refs, cx, move |r| r.fast_forward(&target, &source));
+                    }));
+                }
+                menu = menu.item(op_item(format!("Merge {name} into {cur}"), "Merging", Change::Refs, ws, name.clone(), |r, n| r.merge(n)));
+                if let Some(checked_out) = current {
+                    let (source, target) = (checked_out.to_string(), name.clone());
+                    menu = menu.item(item(format!("Merge {checked_out} into {name} (checks out {name})"), ws, move |this, _, cx| {
+                        let (source, target) = (source.clone(), target.clone());
+                        this.run("Merging", Change::Refs, cx, move |r| r.merge_into(&source, &target));
+                    }));
+                }
                 menu = menu
-                    .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout(n)))
-                    .item(op_item(format!("Merge {name} into {cur}"), "Merging", Change::Refs, ws, name.clone(), |r, n| r.merge(n)))
                     .item(op_item(format!("Rebase {cur} onto {name}"), "Rebasing", Change::Refs, ws, name.clone(), |r, n| r.rebase(n)))
+                    .item(interactive_rebase_item(&cur, &name, ws))
                     .separator();
             } else {
                 menu = menu
@@ -149,6 +223,9 @@ pub fn ref_menu(
                         let mode = Workspace::pull_mode(cx);
                         this.run("Pulling", Change::Refs, cx, move |r| r.pull(mode));
                     }))
+                    .when(on_github, |menu| {
+                        menu.item(item(format!("Push {name} and start a pull request"), ws, |this, _, cx| this.push_and_start_pr(cx)))
+                    })
                     .separator();
             }
             menu.when(!is_current, |menu| {
@@ -166,12 +243,31 @@ pub fn ref_menu(
                     });
                 })
             })
+            .when_some(remotes.iter().find(|r| *r == "origin").or(remotes.first()), |menu, remote| {
+                let branch = name.clone();
+                let default = upstream.unwrap_or_else(|| format!("{remote}/{name}"));
+                menu.item(item("Set upstream…", ws, move |this, window, cx| {
+                    let branch = branch.clone();
+                    this.open_prompt(format!("Set upstream of {branch}"), None, Some(&default), "Set upstream", false, window, cx, move |upstream| {
+                        ("Setting upstream".into(), Box::new(move |r: &gitchrono_core::Repo| r.set_upstream(&branch, &upstream)) as Op)
+                    });
+                }))
+            })
             .when(!is_current, |menu| {
                 let name = name.clone();
                 menu.item(item(format!("Delete {name}…"), ws, move |this, window, cx| {
                     let n = name.clone();
                     this.confirm("Delete branch", format!("Delete local branch {n}? Unmerged commits need a force delete."), "Delete", "Deleting", window, cx, move |r| {
                         r.delete_branch(&n, false)
+                    });
+                }))
+            })
+            .when(!is_current && !merged, |menu| {
+                let name = name.clone();
+                menu.item(item(format!("Force delete {name}…"), ws, move |this, window, cx| {
+                    let n = name.clone();
+                    this.confirm("Force delete branch", format!("Delete local branch {n} even if it has unmerged commits?"), "Delete", "Deleting", window, cx, move |r| {
+                        r.delete_branch(&n, true)
                     });
                 }))
             })
@@ -182,6 +278,7 @@ pub fn ref_menu(
             .item(op_item(format!("Checkout {name}"), "Checking out", Change::Refs, ws, name.clone(), |r, n| r.checkout_remote(n)))
             .item(op_item(format!("Merge {name} into {cur}"), "Merging", Change::Refs, ws, name.clone(), |r, n| r.merge(n)))
             .item(op_item(format!("Rebase {cur} onto {name}"), "Rebasing", Change::Refs, ws, name.clone(), |r, n| r.rebase(n)))
+            .item(interactive_rebase_item(&cur, &name, ws))
             .item({
                 let name = name.clone();
                 item(format!("Create worktree for {name}…"), ws, move |this, window, cx| {
@@ -228,6 +325,11 @@ pub fn ref_menu(
                     r.stash_drop(index)
                 });
             })),
+    };
+    match tip {
+        // These menus outgrow small windows.
+        Some(tip) => commit_menu(menu.separator(), ws, tip, current, cx).scrollable(true).max_h(window.viewport_size().height - px(MENU_MARGIN)),
+        None => menu,
     }
 }
 

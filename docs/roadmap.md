@@ -20,7 +20,9 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Folder view for file lists (staging + commit files) | ✅ | "Folders" toggle; stage a whole folder |
 | Hunk- and line-level staging / unstaging | ✅ | `partial_patch` + `git apply --cached --recount`, integration tested |
 | Discard changes (file / hunk / lines) | ✅ | with confirmation |
-| Right-click context menus (commit, branch, remote, tag, stash, file) | ✅ | not yet click-tested |
+| Right-click context menus (commit, branch, remote, tag, stash, file) | ✅ | branch and `HEAD` labels include their commit's actions; branch, remote and `HEAD` menus click-tested, the rest not yet |
+| Branch menu: fast-forward, merge into it, interactive rebase onto it, force delete, set upstream, push and start a PR | ✅ | fast-forward only when the branch is behind HEAD; force delete only when it has commits HEAD doesn't; the PR item needs `gh` |
+| Commit menu: drop commit, move commit up / down | ✅ | commits on HEAD with no merges after them; a commit a remote has asks first |
 | Create/rename/delete branch & tag dialogs | ✅ | prompt overlay |
 | Auto-refresh on file changes (fs watcher) | ✅ | status-only vs full reload |
 | Command palette (⌘P / ⌘K) | ✅ | actions, branches, tabs, repos; fuzzy |
@@ -35,7 +37,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Feature | Status |
 |---|---|
 | Merge conflict editor | ✅ ours / theirs / both per conflict, whole-file take ours/theirs, save & mark resolved |
-| Drag-and-drop branch → merge/rebase | ✅ sidebar branches; options depend on which side is checked out |
+| Drag-and-drop branch → merge/rebase | ✅ sidebar branches and graph labels; options depend on which side is checked out |
 | Interactive rebase (reorder/squash/edit) | ✅ pick, reword, squash, fixup, drop, reorder; undoable |
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
 | Side-by-side diff, syntax highlighting | ✅ syntect (pure Rust); Split/Unified toggle, line staging in both |
@@ -76,7 +78,7 @@ Ordered by how much a daily user misses them.
 | Merge conflict tool | 3-way, AI-assisted resolution | ✅ (AI suggestions later) |
 | Interactive rebase editor | reorder, squash, reword, drop | ✅ |
 | Drag a branch onto another | merge / rebase / PR | ✅ (PR later) |
-| Select several commits | combined diff, patch, cherry-pick range | ✅ ⌘/Shift-click: cherry-pick, revert, rebase, copy SHAs |
+| Select several commits | combined diff, patch, cherry-pick range | ✅ ⌘/Shift-click: cherry-pick, revert, rebase, copy SHAs, in the panel and on right-click |
 | Hide / solo / pin branches | | ✅ hide & solo (saved per repo); pin todo |
 | Tab aliases, tab reordering | | ⬜ |
 | Clone / init dialogs | including from GitHub/GitLab | ⬜ |

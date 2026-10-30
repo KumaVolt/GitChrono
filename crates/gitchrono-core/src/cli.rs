@@ -303,7 +303,7 @@ impl Repo {
             .collect())
     }
 
-    /// Fill in upstream + ahead/behind for local branches.
+    /// Fill in upstream + ahead/behind and `in_head` for local branches.
     pub fn tracking(&self, refs: &mut Refs) -> Result<()> {
         let out = self.git(&[
             "for-each-ref",
@@ -324,6 +324,12 @@ impl Repo {
                     branch.behind = n.parse().unwrap_or(0);
                 }
             }
+        }
+        // Fails on an unborn HEAD, which has nothing merged into it.
+        let merged = self.git(&["for-each-ref", "--format=%(refname)", "--merged", "HEAD", "refs/heads"]).unwrap_or_default();
+        let merged: std::collections::HashSet<&str> = merged.lines().collect();
+        for branch in &mut refs.local {
+            branch.in_head = merged.contains(branch.full_name.as_str());
         }
         Ok(())
     }
@@ -779,6 +785,19 @@ impl Repo {
 
     pub fn merge(&self, target: &str) -> Result<()> {
         self.git(&["merge", "--no-edit", target]).map(drop)
+    }
+
+    /// Check out `target` and merge `source` into it.
+    pub fn merge_into(&self, source: &str, target: &str) -> Result<()> {
+        self.checkout(target)?;
+        self.merge(source)
+    }
+
+    /// Move the local branch `target` up to the local branch `source` without
+    /// checking it out. git refuses unless that's a fast-forward and `target`
+    /// isn't checked out in any worktree.
+    pub fn fast_forward(&self, target: &str, source: &str) -> Result<()> {
+        self.git(&["fetch", ".", &format!("refs/heads/{source}:refs/heads/{target}")]).map(drop)
     }
 
     pub fn rebase(&self, onto: &str) -> Result<()> {

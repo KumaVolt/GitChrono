@@ -1,6 +1,6 @@
 //! Interactive rebase editor: reorder commits and pick an action for each.
 
-use gitchrono_core::{RebaseAction, RebaseStep};
+use gitchrono_core::{RebaseAction, RebaseStep, Repo};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable as _;
@@ -29,7 +29,7 @@ fn action_color(action: RebaseAction) -> u32 {
 }
 
 impl Workspace {
-    /// Edit the commits after `base` (exclusive) up to HEAD.
+    /// Edit the commits on HEAD that `base`, a commit or branch, doesn't have.
     pub fn open_rebase_editor(&mut self, base: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.clone() else { return };
         let target = base.clone();
@@ -39,7 +39,7 @@ impl Workspace {
             this.update_in(cx, |this, window, cx| {
                 match result {
                     Ok(steps) if steps.is_empty() => {
-                        this.error = Some("There are no commits after this one on the current branch.".into());
+                        this.error = Some("The current branch has no commits to rebase here.".into());
                     }
                     Ok(steps) => {
                         let messages = steps
@@ -54,6 +54,51 @@ impl Workspace {
                     Err(e) => this.error = Some(format!("{e:#}").into()),
                 }
                 cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Drop `id` from the current branch, after a yes.
+    pub fn drop_commit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let question = format!("Drop {} from the current branch? The commits after it get new ids.", &id[..7]);
+        let target = id.clone();
+        self.rewrite(id, Some(("Drop commit", question)), "Dropping", move |r| r.drop_commit(&target), window, cx);
+    }
+
+    /// Swap `id` with the commit after it (`up`) or before it.
+    pub fn move_commit(&mut self, id: String, up: bool, window: &mut Window, cx: &mut Context<Self>) {
+        // The older of the two is the first commit rewritten.
+        let parent = self.snap.commits.iter().find(|c| c.id == id).and_then(|c| c.parents.first().cloned());
+        let Some(oldest) = (if up { Some(id.clone()) } else { parent }) else { return };
+        self.rewrite(oldest, None, "Moving commit", move |r| r.move_commit(&id, up), window, cx);
+    }
+
+    /// Run `op`, which rewrites `oldest` and everything after it. A remote
+    /// having `oldest` means a force push, so that always asks first; `ask`
+    /// is a question to ask regardless.
+    fn rewrite(
+        &mut self,
+        oldest: String,
+        ask: Option<(&'static str, String)>,
+        busy: &'static str,
+        op: impl FnOnce(&Repo) -> anyhow::Result<()> + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(repo) = self.repo.clone() else { return };
+        let task = cx.background_spawn(async move { repo.is_pushed(&oldest).unwrap_or(false) });
+        cx.spawn_in(window, async move |this, cx| {
+            let pushed = task.await;
+            this.update_in(cx, |this, window, cx| {
+                let warning = "A remote already has these commits, so the branch will need a force push.";
+                match (ask, pushed) {
+                    (None, false) => this.run(busy, Change::Refs, cx, op),
+                    (Some((title, question)), true) => this.confirm(title, format!("{question} {warning}"), "Continue", busy, window, cx, op),
+                    (Some((title, question)), false) => this.confirm(title, question, "Continue", busy, window, cx, op),
+                    (None, true) => this.confirm("Rewrite pushed commits", warning.to_string(), "Continue", busy, window, cx, op),
+                }
             })
             .ok();
         })

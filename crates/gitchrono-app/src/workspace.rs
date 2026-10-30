@@ -962,6 +962,14 @@ impl Workspace {
         });
     }
 
+    pub fn push_and_start_pr(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
+        self.run("Pushing", Change::Refs, cx, move |r| {
+            r.push(false)?;
+            crate::github::create_in_browser(&root)
+        });
+    }
+
     pub fn pull_and_push(&mut self, cx: &mut Context<Self>) {
         self.push_behind = None;
         let mode = Self::pull_mode(cx);
@@ -1091,6 +1099,35 @@ impl Workspace {
         let mut indices = self.multi.clone();
         indices.sort_unstable_by(|a, b| b.cmp(a));
         indices.iter().filter_map(|&i| self.snap.commits.get(i)).collect()
+    }
+
+    pub fn multi_has_merge(&self) -> bool {
+        self.multi_commits().iter().any(|c| c.parents.len() > 1)
+    }
+
+    /// The commit before the oldest selected one, where a rebase of them starts.
+    pub fn multi_rebase_base(&self) -> Option<String> {
+        self.multi_commits().first().and_then(|c| c.parents.first().cloned())
+    }
+
+    fn multi_ids(&self) -> Vec<String> {
+        self.multi_commits().iter().map(|c| c.id.clone()).collect()
+    }
+
+    pub fn cherry_pick_multi(&mut self, cx: &mut Context<Self>) {
+        let ids = self.multi_ids();
+        self.run("Cherry-picking", Change::Refs, cx, move |r| ids.iter().try_for_each(|id| r.cherry_pick(id)));
+    }
+
+    pub fn revert_multi(&mut self, cx: &mut Context<Self>) {
+        let ids = self.multi_ids();
+        // Newest first, so each revert applies cleanly on top of the last.
+        self.run("Reverting", Change::Refs, cx, move |r| ids.iter().rev().try_for_each(|id| r.revert(id)));
+    }
+
+    pub fn copy_multi_shas(&mut self, cx: &mut Context<Self>) {
+        let shas = self.multi_commits().iter().map(|c| c.short_id.as_str()).collect::<Vec<_>>().join(" ");
+        cx.write_to_clipboard(ClipboardItem::new_string(shas));
     }
 
     pub fn select_wip(&mut self, cx: &mut Context<Self>) {
