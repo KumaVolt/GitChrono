@@ -15,7 +15,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::file_tree::{self, TreeRow};
-use crate::graph_paint::{self, Node, ROW_HEIGHT};
+use crate::graph_paint::{self, Node, ROW_HEIGHT, WipLine};
 use crate::icons::ToolIcon;
 use crate::menus;
 use crate::theme::{self, c};
@@ -690,7 +690,7 @@ impl Workspace {
                     .child(header.pr_1())
                     .child(button("pr-new").label("New").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                         let Some(root) = this.repo.as_ref().map(|r| r.root().to_path_buf()) else { return };
-                        this.run_inner("Opening pull request form".into(), Change::Refs, false, cx, move |_| crate::github::create_in_browser(&root), |_, _| {});
+                        this.run_inner("Opening pull request form".into(), Change::Refs, false, cx, move |_| crate::github::create_in_browser(&root), |_, _, _| {});
                     }))),
             );
             for (i, pr) in prs.iter().enumerate().filter(|(_, p)| open && (keep(&p.title) || keep(&p.head_ref_name))) {
@@ -962,15 +962,10 @@ impl Workspace {
         if wip && row == 0 {
             let selected = self.selection == Selection::Wip;
             // Hang the WIP node above whatever HEAD points at, not just the newest commit.
-            let head = self.snap.refs.head_id.as_deref();
-            let head_lane = self
-                .snap
-                .commits
-                .iter()
-                .position(|c| Some(c.id.as_str()) == head)
-                .and_then(|i| self.graph.rows.get(i))
-                .map_or(0, |r| r.lane);
-            let n = self.status.change_count();
+            let head = self.head_index.and_then(|i| self.graph.rows.get(i));
+            let anchor = Row { lane: head.map_or(0, |r| r.lane), color: head.map_or(0, |r| r.color), ..Default::default() };
+            let counts = self.status.counts();
+            let changes = crate::ui::change_parts(counts.conflicted, counts.modified, counts.added, counts.deleted);
             return base
                 .when(selected, |d| d.bg(c(theme::SELECTED)))
                 .child(div().w(px(170.)).flex_none())
@@ -979,15 +974,18 @@ impl Workspace {
                         .w(gutter)
                         .min_w(px(graph_paint::MIN_GUTTER))
                         .h_full()
-                        .child(graph_paint::row_canvas(Row { lane: head_lane, ..Default::default() }, Node::Wip)),
+                        .child(graph_paint::row_canvas(anchor, Node::Wip { attached: head.is_some() })),
                 )
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
                         .px_2()
-                        .italic()
-                        .text_color(c(theme::MUTED))
-                        .child(format!("// WIP — {n} uncommitted change{}", if n == 1 { "" } else { "s" })),
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .child(div().flex_none().px_2().h(px(20.)).flex().items_center().rounded_sm().bg(c(theme::BG)).italic().text_color(c(theme::MUTED)).child("// WIP"))
+                        .children(changes.into_iter().map(|(text, color)| div().flex_none().text_color(c(color)).child(text))),
                 )
                 .into_any_element();
         }
@@ -997,6 +995,10 @@ impl Workspace {
         let layout = self.graph.rows[index].clone();
         let stash = commit.refs.iter().any(|r| r.kind == RefKind::Stash);
         let color = if stash { c(theme::MUTED).into() } else { theme::lane(layout.color) };
+        let wip_line = self.head_index.filter(|head| wip && index <= *head).and_then(|head| {
+            let anchor = self.graph.rows.get(head)?;
+            Some(WipLine { lane: anchor.lane, color: anchor.color, ends: index == head })
+        });
         let in_multi = self.multi.contains(&index);
         let selected = self.selection == Selection::Commit(index) || in_multi;
         let merge = commit.parents.len() > 1;
@@ -1088,7 +1090,7 @@ impl Workspace {
                     .min_w(px(graph_paint::MIN_GUTTER))
                     .h_full()
                     .overflow_hidden()
-                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty(), stash, stash_lines }))
+                    .child(graph_paint::row_canvas(layout, Node::Commit { merge, labelled: !commit.refs.is_empty(), stash, stash_lines, wip_line }))
                     // The stash's box holds the toolbar's stash tray.
                     .when(stash, |d| {
                         let x = if f32::from(gutter) < graph_paint::MIN_FULL_GUTTER { f32::from(gutter).max(graph_paint::MIN_GUTTER) / 2. } else { node_x };
@@ -1945,16 +1947,18 @@ impl Render for Workspace {
             self.summary.update(cx, |s, cx| s.set_value("", window, cx));
             self.description.update(cx, |s, cx| s.set_value("", window, cx));
         }
+        self.auto_commit_message(window, cx);
         let root = div().relative().size_full().flex().flex_col().bg(c(theme::BG)).text_color(c(theme::TEXT));
         if self.repo.is_none() {
             return root.child(self.render_welcome(cx));
         }
 
-        let center = match (&self.conflict, &self.blame, &self.diff) {
-            (Some(conflict), _, _) => self.render_conflict(conflict, cx).into_any_element(),
-            (None, Some(blame), _) => self.render_blame(blame, cx).into_any_element(),
-            (None, None, Some(view)) => self.render_diff(view, cx).into_any_element(),
-            (None, None, None) => self.render_graph(cx).into_any_element(),
+        // Conflicts fill the window: the panes need the width.
+        let conflict = self.render_conflict(cx).map(IntoElement::into_any_element);
+        let center = match (&self.blame, &self.diff) {
+            (Some(blame), _) => self.render_blame(blame, cx).into_any_element(),
+            (None, Some(view)) => self.render_diff(view, cx).into_any_element(),
+            (None, None) => self.render_graph(cx).into_any_element(),
         };
         let right = if let Some(history) = &self.file_history {
             Some(self.render_file_history(history, cx).into_any_element())
@@ -1971,7 +1975,7 @@ impl Render for Workspace {
         root.on_action(cx.listener(|this, _: &crate::workspace::CloseSearch, _, cx| this.close_search(cx)))
             .child(self.render_toolbar(cx))
             .child(self.render_banners(cx))
-            .child(
+            .child(conflict.unwrap_or_else(|| {
                 div()
                     .flex_1()
                     .min_h_0()
@@ -1989,8 +1993,9 @@ impl Render for Workspace {
                                 .border_color(c(theme::BORDER))
                                 .child(right),
                         )
-                    }),
-            )
+                    })
+                    .into_any_element()
+            }))
             .when(self.terminal_open, |d| d.child(self.render_terminal_panel(cx)))
             .children(self.render_prompt(cx))
             .children(self.render_ai_settings(cx))

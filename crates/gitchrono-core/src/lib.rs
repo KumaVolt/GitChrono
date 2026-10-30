@@ -14,9 +14,10 @@ mod stash;
 pub mod gitbin;
 pub mod setup;
 pub mod summary;
+pub mod sync;
 mod undo;
 
-pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};
+pub use conflict::{Chunk, Conflict, ConflictFile, Line, OutputRow, Resolution, SideRow};
 pub use cli::{GitError, NoUpstream, PullMode, ResetMode, git};
 pub use clone::{clone_repo, repo_name_from_url};
 pub use diff::{ApplyMode, parse_patch, partial_patch};

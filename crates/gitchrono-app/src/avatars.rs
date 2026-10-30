@@ -16,11 +16,13 @@ pub struct Prefs {
     pub gravatar: bool,
     /// What the toolbar's Pull button does; `None` follows git's `pull.rebase`.
     pub pull: Option<crate::projects::PullAction>,
+    /// Write the commit message with AI once every change is staged.
+    pub auto_commit_message: bool,
 }
 
 impl Prefs {
     pub fn of(session: &crate::projects::Session) -> Self {
-        Self { gravatar: session.gravatar_enabled(), pull: session.pull_action }
+        Self { gravatar: session.gravatar_enabled(), pull: session.pull_action, auto_commit_message: session.auto_commit_message }
     }
 }
 

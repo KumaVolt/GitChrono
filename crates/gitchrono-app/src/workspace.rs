@@ -129,6 +129,8 @@ pub struct GraphSearch {
 pub struct Workspace {
     pub repo: Option<Arc<Repo>>,
     pub snap: Arc<Snapshot>,
+    /// Where HEAD is in `snap.commits`.
+    pub head_index: Option<usize>,
     pub status: Status,
     pub graph: Arc<Graph>,
     /// Per graph row, the lanes drawn as a stash's dashed line.
@@ -186,6 +188,9 @@ pub struct Workspace {
     _ai_setup: Subscription,
     pub ai_settings: Option<crate::ai::AiSettings>,
     pub ai_busy: Option<SharedString>,
+    /// The staged files a message was last written automatically for, so it
+    /// happens once for them however often the view renders.
+    pub auto_message_for: Option<String>,
     /// Token usage of the last AI request, shown so costs stay visible.
     pub ai_usage: Option<SharedString>,
     pub(crate) ai_task: Option<Task<()>>,
@@ -246,6 +251,7 @@ impl Workspace {
         let mut this = Self {
             repo: None,
             snap: Arc::default(),
+            head_index: None,
             status: Status::default(),
             graph: Arc::default(),
             stash_lines: Arc::default(),
@@ -284,6 +290,7 @@ impl Workspace {
             }),
             ai_settings: None,
             ai_busy: None,
+            auto_message_for: None,
             ai_usage: None,
             ai_task: None,
             debug_select: std::env::var("GITCHRONO_SELECT").ok().and_then(|v| {
@@ -397,10 +404,14 @@ impl Workspace {
         }
     }
 
+    pub fn commit_form_empty(&self, cx: &App) -> bool {
+        self.summary.read(cx).value().trim().is_empty() && self.description.read(cx).value().trim().is_empty()
+    }
+
     /// What quitting now would throw away or cut short, for the restart prompt.
     pub fn unsaved_work(&self, cx: &App) -> Vec<&'static str> {
         let mut lost = Vec::new();
-        if !self.summary.read(cx).value().trim().is_empty() || !self.description.read(cx).value().trim().is_empty() {
+        if !self.commit_form_empty(cx) {
             lost.push("the commit message");
         }
         if self.busy.is_some() {
@@ -662,6 +673,7 @@ impl Workspace {
                         this.status = std::mem::take(&mut snap.status);
                         // Indices into the old commit list mean nothing now.
                         this.multi.clear();
+                        this.head_index = snap.commits.iter().position(|c| Some(&c.id) == snap.refs.head_id.as_ref());
                         this.snap = Arc::new(snap);
                         this.graph = Arc::new(graph);
                         this.stash_lines = Arc::new(stash_lines);
@@ -751,7 +763,7 @@ impl Workspace {
         cx: &mut Context<Self>,
         op: impl FnOnce(&Repo) -> Result<()> + Send + 'static,
     ) {
-        self.run_inner(label.into(), refresh, true, cx, op, |_, _| {});
+        self.run_inner(label.into(), refresh, true, cx, op, |_, _, _| {});
     }
 
     pub(crate) fn run_inner(
@@ -761,7 +773,7 @@ impl Workspace {
         record: bool,
         cx: &mut Context<Self>,
         op: impl FnOnce(&Repo) -> Result<()> + Send + 'static,
-        done: impl FnOnce(&mut Self, bool) + 'static,
+        done: impl FnOnce(&mut Self, bool, &mut Context<Self>) + 'static,
     ) {
         let Some(repo) = self.repo.clone() else { return };
         if self.busy.is_some() {
@@ -800,7 +812,7 @@ impl Workspace {
                 if let Some(entry) = entry {
                     this.record_undo(entry);
                 }
-                done(this, ok);
+                done(this, ok, cx);
                 // Our own refresh covers whatever the watcher saw meanwhile.
                 let refresh = this.pending.take().map_or(refresh, |p| p.max(refresh));
                 this.apply_change(refresh, cx);
@@ -829,7 +841,7 @@ impl Workspace {
             let swap = r.apply_stash(index, pop)?;
             *out.lock().unwrap() = swap;
             Ok(())
-        }, move |this, _| {
+        }, move |this, _, _| {
             let Some(swap) = slot.lock().ok().and_then(|mut s| s.take()) else { return };
             let mut files = swap.overlap.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
             if swap.overlap.len() > 3 {
@@ -846,7 +858,7 @@ impl Workspace {
         let Some(entry) = self.undo_stack.pop() else { return };
         let label = format!("Undoing {}", entry.label.to_lowercase());
         let back = entry.clone();
-        self.run_inner(label, Change::Refs, false, cx, move |r| r.undo(&back), move |this, ok| {
+        self.run_inner(label, Change::Refs, false, cx, move |r| r.undo(&back), move |this, ok, _| {
             if ok { this.redo_stack.push(entry) } else { this.undo_stack.push(entry) }
         });
     }
@@ -855,7 +867,7 @@ impl Workspace {
         let Some(entry) = self.redo_stack.pop() else { return };
         let label = format!("Redoing {}", entry.label.to_lowercase());
         let forward = entry.clone();
-        self.run_inner(label, Change::Refs, false, cx, move |r| r.redo(&forward), move |this, ok| {
+        self.run_inner(label, Change::Refs, false, cx, move |r| r.redo(&forward), move |this, ok, _| {
             if ok { this.undo_stack.push(entry) } else { this.redo_stack.push(entry) }
         });
     }
@@ -954,7 +966,7 @@ impl Workspace {
                     flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
             })
-        }, move |this, ok| {
+        }, move |this, ok, _| {
             if !ok && rejected.load(std::sync::atomic::Ordering::Relaxed) {
                 this.error = None;
                 this.push_behind = Some("Someone pushed to this branch in the meantime. Pull their commits in first, then push.".into());
@@ -1237,7 +1249,7 @@ impl Workspace {
         let message = if body.is_empty() { summary } else { format!("{summary}\n\n{body}") };
         let amend = self.amend;
         // The form clears only once the commit worked, so a failure keeps the message.
-        self.run_inner("Committing".into(), Change::Refs, true, cx, move |repo| repo.commit(&message, amend), |this, ok| {
+        self.run_inner("Committing".into(), Change::Refs, true, cx, move |repo| repo.commit(&message, amend), |this, ok, _| {
             if ok {
                 this.reset_commit_form = true;
                 this.amend = false;
@@ -1324,7 +1336,7 @@ impl Workspace {
                         *result.lock().unwrap() = Some(r.rename_stash(index, &message)?);
                         Ok(())
                     },
-                    move |this, ok| {
+                    move |this, ok, _| {
                         if let Some(stash_edit) = done.lock().unwrap().take().filter(|_| ok) {
                             this.reselect = Some(stash_edit.new_target.clone());
                             this.record_undo(UndoEntry::stash("Renaming stash", stash_edit));
@@ -1350,7 +1362,7 @@ impl Workspace {
                         *result.lock().unwrap() = Some(r.reword(&id, &message)?);
                         Ok(())
                     },
-                    move |this, ok| {
+                    move |this, ok, _| {
                         if let Some(new_id) = done.lock().unwrap().take().filter(|_| ok) {
                             this.reselect = Some(new_id);
                         }
@@ -1445,7 +1457,7 @@ impl Workspace {
         }
         if let Some(action) = prompt.action.take() {
             let (label, op) = action(text);
-            self.run_inner(label, Change::Refs, prompt.record, cx, op, |_, _| {});
+            self.run_inner(label, Change::Refs, prompt.record, cx, op, |_, _, _| {});
         }
         cx.notify();
     }

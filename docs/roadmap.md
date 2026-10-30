@@ -7,7 +7,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 |---|---|---|
 | Commit graph (all refs, date order, lanes, merges) | ✅ | gix walk in `--date-order` (like GitKraken) + `gitchrono-graph` |
 | Ref badges (branch / remote / tag / stash / HEAD) | ✅ | |
-| WIP node + staging panel (file-level stage/unstage) | ✅ | |
+| WIP node + staging panel (file-level stage/unstage) | ✅ | WIP row joined to HEAD, with change counts |
 | Commit / amend | ✅ | |
 | Commit detail + changed files | ✅ | gix tree diff with rename tracking |
 | Diff viewer (unified) | ✅ | |
@@ -36,7 +36,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 ## Tier 2 — Solid
 | Feature | Status |
 |---|---|
-| Merge conflict editor | ✅ ours / theirs / both per conflict, whole-file take ours/theirs, save & mark resolved |
+| Merge conflict editor | ✅ fills the window: ours and theirs side by side with a checkbox per conflict (both = keep both), live output below, jump between conflicts, syntax colors, whole-file take ours/theirs, save & mark resolved, next file opens by itself; output isn't editable yet |
 | Drag-and-drop branch → merge/rebase | ✅ sidebar branches and graph labels; options depend on which side is checked out |
 | Interactive rebase (reorder/squash/edit) | ✅ pick, reword, squash, fixup, drop, reorder; undoable |
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
@@ -52,12 +52,12 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 |---|---|
 | Launchpad: PRs/issues across GitHub/GitLab/Bitbucket/Azure | 💎 |
 | Hosting integrations (OAuth, create PR, clone from) | ⬜ / 💎 sign-in waits for a server for the OAuth flow |
-| Workspaces (multi-repo) | 🟡 project folders; multi-repo fetch/pull still todo |
+| Workspaces (multi-repo) | 🟡 project folders; Fetch all / Pull all per home group, a conflicting pull is undone |
 | Settings page: git identity, defaults, signing, SSH keys | ✅ global or per repo; generate/test Ed25519 keys |
 | Profile pictures (Gravatar, GitHub no-reply), opt-in | ✅ |
 | Footer: version, update status, About & credits | ✅ |
 | Profiles | ⬜ |
-| AI commit messages / explain commit | 🟡 commit message, explain commit, branch & stash names (BYOK) |
+| AI commit messages / explain commit | 🟡 commit message (optionally automatic once everything is staged), explain commit, branch & stash names (BYOK) |
 | Release notes from tag range → gitchrono.com changelog | 💎 |
 | Cloud patches | 💎 |
 

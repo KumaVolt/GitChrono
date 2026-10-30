@@ -136,6 +136,33 @@ impl Status {
     pub fn change_count(&self) -> usize {
         self.staged.len() + self.unstaged.len() + self.conflicted.len()
     }
+
+    /// Changed files by kind. A file both staged and edited again counts once,
+    /// as what it is overall: added beats deleted beats modified.
+    pub fn counts(&self) -> ChangeCounts {
+        let rank = |status| match status {
+            FileStatus::Conflicted => 3,
+            FileStatus::Added | FileStatus::Untracked => 2,
+            FileStatus::Deleted => 1,
+            _ => 0,
+        };
+        let mut files = std::collections::HashMap::new();
+        for file in self.conflicted.iter().chain(&self.staged).chain(&self.unstaged) {
+            let kind = files.entry(file.path.as_str()).or_insert(0);
+            *kind = rank(file.status).max(*kind);
+        }
+        let count = |kind| files.values().filter(|k| **k == kind).count() as u32;
+        ChangeCounts { modified: count(0), deleted: count(1), added: count(2), conflicted: count(3) }
+    }
+}
+
+/// How many files changed in each way.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChangeCounts {
+    pub modified: u32,
+    pub added: u32,
+    pub deleted: u32,
+    pub conflicted: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,4 +267,25 @@ pub struct Submodule {
     pub sha: String,
     /// ' ' up to date, '-' not initialized, '+' checked-out commit differs, 'U' conflicts.
     pub state: char,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(path: &str, status: FileStatus) -> FileChange {
+        FileChange { path: path.into(), old_path: None, status }
+    }
+
+    #[test]
+    fn counts_each_file_once_as_what_it_is_overall() {
+        let status = Status {
+            staged: vec![file("new.rs", FileStatus::Added), file("a.rs", FileStatus::Modified), file("gone.rs", FileStatus::Deleted), file("moved.rs", FileStatus::Renamed)],
+            unstaged: vec![file("new.rs", FileStatus::Modified), file("a.rs", FileStatus::Modified), file("b.rs", FileStatus::Modified), file("todo.txt", FileStatus::Untracked)],
+            conflicted: vec![file("clash.rs", FileStatus::Conflicted)],
+            ..Default::default()
+        };
+        assert_eq!(status.counts(), ChangeCounts { modified: 3, added: 2, deleted: 1, conflicted: 1 });
+        assert_eq!(status.change_count(), 9, "the file list still has every entry");
+    }
 }

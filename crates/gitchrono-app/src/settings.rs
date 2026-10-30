@@ -518,6 +518,12 @@ impl Shell {
                         })),
                 )
             })
+            .child({
+                let hint = "Once every change is staged and the message is empty, AI writes the summary and description, once for those files. Each one is a request to your provider.";
+                let hint = if cx.global::<crate::ai::AiSetup>().ready { hint.to_string() } else { format!("{hint} Needs AI set up first.") };
+                row("Write commit messages automatically", hint.into())
+                    .child(switch("prefs-auto-message", self.session.auto_commit_message, cx, |s, v| s.auto_commit_message = v))
+            })
     }
 }
 

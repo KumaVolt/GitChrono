@@ -25,9 +25,19 @@ pub enum Node {
     /// `stash`: the commit is a stash, drawn as a dashed box joined to its base
     /// by a dashed line. `stash_lines`: one bit per lane whose line through
     /// this row is a stash's (see [`stash_lines`]).
-    Commit { merge: bool, labelled: bool, stash: bool, stash_lines: u64 },
-    /// The uncommitted-changes row: hollow node joined to HEAD below it.
-    Wip,
+    /// `wip_line`: the line from the WIP row to HEAD, when it crosses this row.
+    Commit { merge: bool, labelled: bool, stash: bool, stash_lines: u64, wip_line: Option<WipLine> },
+    /// The uncommitted-changes row: a dashed ring, joined to HEAD if there is one.
+    Wip { attached: bool },
+}
+
+/// The dashed line from the WIP row down to HEAD, which needn't be the next
+/// commit: it runs in HEAD's lane until it `ends` at HEAD's node.
+#[derive(Clone, Copy)]
+pub struct WipLine {
+    pub lane: usize,
+    pub color: usize,
+    pub ends: bool,
 }
 
 /// Narrowest graph column that still draws lanes (below it: dots only).
@@ -43,7 +53,8 @@ fn lane_x(bounds: &Bounds<Pixels>, lane: usize) -> Pixels {
 }
 
 pub fn gutter_width(max_lane: usize) -> Pixels {
-    px((PAD * 2. + (max_lane + 1) as f32 * LANE_WIDTH).min(MAX_GUTTER))
+    // A single lane still needs room for its line, or linear histories lose it.
+    px((PAD * 2. + (max_lane + 1) as f32 * LANE_WIDTH).clamp(MIN_FULL_GUTTER, MAX_GUTTER))
 }
 
 /// Per row, a bit for each lane carrying a stash's line down to its base, so
@@ -131,29 +142,33 @@ fn paint_row(bounds: Bounds<Pixels>, row: &Row, node: Node, window: &mut Window)
             paint_stash_box(window, x, mid);
             return;
         }
-        let hollow = matches!(node, Node::Wip | Node::Commit { merge: true, .. });
-        let color = if let Node::Wip = node { theme::c(theme::MUTED).into() } else { theme::lane(row.color) };
-        paint_node(window, x, mid, color, hollow);
+        if let Node::Wip { .. } = node {
+            paint_wip_ring(window, x, mid, theme::lane(row.color));
+            return;
+        }
+        paint_node(window, x, mid, theme::lane(row.color), matches!(node, Node::Commit { merge: true, .. }));
         return;
     }
     let node_x = lane_x(&bounds, row.lane);
 
-    if let Node::Wip = node {
-        let color: Hsla = theme::c(theme::MUTED).into();
-        let mut dashed = PathBuilder::stroke(px(2.)).dash_array(&[px(3.), px(3.)]);
-        dashed.move_to(point(node_x, mid));
-        dashed.line_to(point(node_x, bottom));
-        if let Ok(p) = dashed.build() {
-            window.paint_path(p, color);
+    if let Node::Wip { attached } = node {
+        let color = theme::lane(row.color);
+        // The band joining the ring to the message, as on GitKraken's WIP row.
+        let band = Bounds::from_corners(point(node_x, top + px(1.)), point(bounds.right(), bottom - px(1.)));
+        window.paint_quad(fill(band, color.opacity(0.35)));
+        if attached {
+            segment(window, point(node_x, mid), point(node_x, bottom), color, Bend::Curve, true);
         }
-        paint_node(window, node_x, mid, color, true);
+        paint_wip_ring(window, node_x, mid, color);
         return;
     }
 
-    let (stash, stash_lines) = match node {
-        Node::Commit { stash, stash_lines, .. } => (stash, stash_lines),
-        Node::Wip => (false, 0),
-    };
+    let Node::Commit { stash, stash_lines, wip_line, .. } = node else { return };
+    // Under the commit's own lines, and under any node it passes.
+    if let Some(line) = wip_line {
+        let x = lane_x(&bounds, line.lane);
+        segment(window, point(x, top), point(x, if line.ends { mid } else { bottom }), theme::lane(line.color), Bend::Curve, true);
+    }
     for e in &row.edges {
         let dashed = if e.from_node { stash } else { e.from_lane < 64 && stash_lines & (1 << e.from_lane) != 0 };
         let color = if dashed { theme::c(theme::MUTED).into() } else { theme::lane(e.color) };
@@ -187,6 +202,13 @@ fn paint_node(window: &mut Window, x: Pixels, y: Pixels, color: Hsla, hollow: bo
     let bounds = Bounds::new(point(x - px(r), y - px(r)), size(px(r * 2.), px(r * 2.)));
     let fill: Hsla = if hollow { theme::c(theme::BG).into() } else { color };
     window.paint_quad(quad(bounds, px(r), fill, px(2.), color, BorderStyle::default()));
+}
+
+/// The WIP row's node: a ring of dashes, a little larger than a commit's dot.
+fn paint_wip_ring(window: &mut Window, x: Pixels, y: Pixels, color: Hsla) {
+    let r = px(NODE_RADIUS + 2.);
+    let bounds = Bounds::new(point(x - r, y - r), size(r * 2., r * 2.));
+    window.paint_quad(quad(bounds, r, theme::c(theme::BG), px(2.), color, BorderStyle::Dashed));
 }
 
 /// A stash's node: a dashed box, which the row fills with the stash tray icon.

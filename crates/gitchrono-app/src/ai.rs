@@ -3,7 +3,7 @@
 
 use anyhow::{Result, bail};
 use gitchrono_ai::{AiConfig, PRESETS, Request};
-use gitchrono_core::Repo;
+use gitchrono_core::{Operation, Repo, Status};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable as _;
@@ -13,6 +13,13 @@ use gpui_kit::*;
 use crate::theme::{self, c};
 use crate::workspace::{Selection, Suggest, Workspace};
 use crate::ui::button;
+
+/// The staged files, when every change is staged and no merge or rebase is
+/// under way: the moment a commit message can be written for them.
+fn ready_to_commit(status: &Status) -> Option<String> {
+    let settled = status.unstaged.is_empty() && status.conflicted.is_empty() && status.operation == Operation::None;
+    (settled && !status.staged.is_empty()).then(|| status.staged.iter().map(|f| format!("{} {}", f.status.letter(), f.path)).collect::<Vec<_>>().join("\n"))
+}
 
 /// The saved AI configuration, shared by every tab so they all agree on it.
 pub struct AiSetup {
@@ -180,6 +187,31 @@ impl Workspace {
     }
 
     pub fn generate_commit_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.write_commit_message(None, window, cx);
+    }
+
+    /// With the setting on, write the message as soon as every change is
+    /// staged, once for those files. Runs on every render, so it must stay cheap.
+    pub fn auto_commit_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !cx.global::<crate::avatars::Prefs>().auto_commit_message || !cx.global::<AiSetup>().ready {
+            return;
+        }
+        let Some(files) = ready_to_commit(&self.status) else {
+            self.auto_message_for = None;
+            return;
+        };
+        if self.auto_message_for.as_ref() == Some(&files) || self.busy.is_some() || self.ai_busy.is_some() {
+            return;
+        }
+        self.auto_message_for = Some(files.clone());
+        if !self.amend && self.commit_form_empty(cx) {
+            cx.defer_in(window, move |this, window, cx| this.write_commit_message(Some(files), window, cx));
+        }
+    }
+
+    /// `auto`: the files an automatic run is for. Its result is dropped if
+    /// those are no longer what's staged, or the form has been filled meanwhile.
+    fn write_commit_message(&mut self, auto: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let recent: Vec<String> = self.snap.commits.iter().take(30).map(|c| c.summary.to_string()).collect();
         let branch = self.status.branch.clone();
         self.ai_request(
@@ -194,7 +226,10 @@ impl Workspace {
                 let recent: Vec<&str> = recent.iter().map(String::as_str).collect();
                 Ok(gitchrono_ai::commit_message(&diff, &recent, branch.as_deref()))
             },
-            |this, text, window, cx| {
+            move |this, text, window, cx| {
+                if auto.is_some_and(|files| ready_to_commit(&this.status).as_ref() != Some(&files) || this.amend || !this.commit_form_empty(cx)) {
+                    return;
+                }
                 let message = gitchrono_ai::parse_commit_message(&text);
                 this.summary.update(cx, |s, cx| s.set_value(message.summary, window, cx));
                 this.description.update(cx, |s, cx| s.set_value(message.body, window, cx));
@@ -322,5 +357,38 @@ impl Workspace {
                         ),
                 ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ready_to_commit;
+    use gitchrono_core::{FileChange, FileStatus, Operation, Status};
+
+    fn file(path: &str, status: FileStatus) -> FileChange {
+        FileChange { path: path.into(), old_path: None, status }
+    }
+
+    #[test]
+    fn ready_only_when_everything_is_staged() {
+        let staged = Status { staged: vec![file("a.rs", FileStatus::Modified), file("b.rs", FileStatus::Added)], ..Default::default() };
+        assert_eq!(ready_to_commit(&staged).as_deref(), Some("M a.rs\nA b.rs"));
+
+        assert_eq!(ready_to_commit(&Status::default()), None, "nothing to describe");
+        let partly = Status { unstaged: vec![file("c.rs", FileStatus::Modified)], ..staged.clone() };
+        assert_eq!(ready_to_commit(&partly), None);
+        let untracked = Status { unstaged: vec![file("d.rs", FileStatus::Untracked)], ..staged.clone() };
+        assert_eq!(ready_to_commit(&untracked), None);
+        let conflict = Status { conflicted: vec![file("e.rs", FileStatus::Conflicted)], ..staged.clone() };
+        assert_eq!(ready_to_commit(&conflict), None);
+        let merging = Status { operation: Operation::Merge, ..staged.clone() };
+        assert_eq!(ready_to_commit(&merging), None, "git has a message for a merge already");
+    }
+
+    #[test]
+    fn staging_a_different_set_of_files_is_a_new_moment() {
+        let one = Status { staged: vec![file("a.rs", FileStatus::Modified)], ..Default::default() };
+        let two = Status { staged: vec![file("a.rs", FileStatus::Modified), file("b.rs", FileStatus::Modified)], ..Default::default() };
+        assert_ne!(ready_to_commit(&one), ready_to_commit(&two));
     }
 }
