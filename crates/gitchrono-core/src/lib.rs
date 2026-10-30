@@ -14,14 +14,15 @@ mod stash;
 pub mod gitbin;
 pub mod setup;
 pub mod summary;
+pub mod sync;
 mod undo;
 
-pub use conflict::{Chunk, Conflict, ConflictFile, Resolution};
+pub use conflict::{Chunk, Conflict, ConflictFile, Line, OutputRow, Resolution, SideRow};
 pub use cli::{GitError, NoUpstream, PullMode, ResetMode, git};
 pub use clone::{clone_repo, repo_name_from_url};
 pub use diff::{ApplyMode, parse_patch, partial_patch};
 pub use model::*;
-pub use rebase::{RebaseAction, RebaseStep};
+pub use rebase::{RebaseAction, RebaseStep, Rewritable, rewritable};
 pub use repo::Repo;
 pub use stash::StashSwap;
 pub use undo::{RefState, StashEdit, UndoChange, UndoEntry};
@@ -93,7 +94,7 @@ mod tests {
     use super::*;
 
     fn branch(name: &str, current: bool) -> Branch {
-        Branch { name: name.into(), full_name: format!("refs/heads/{name}"), target: "0".repeat(40), current, upstream: None, ahead: 0, behind: 0 }
+        Branch { name: name.into(), full_name: format!("refs/heads/{name}"), target: "0".repeat(40), current, upstream: None, ahead: 0, behind: 0, in_head: false }
     }
 
     #[test]

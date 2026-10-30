@@ -73,19 +73,37 @@ pub fn highlight_diff(path: &str, diff: &FileDiff) -> Highlights {
                 DiffLineKind::Add => new.highlight_line(&with_newline, &SYNTAXES),
             };
             let Ok(spans) = spans else { continue };
-            let mut offset = 0;
-            let mut colored = Spans::new();
-            for (style, piece) in spans {
-                let end = (offset + piece.len()).min(text.len());
-                if end > offset {
-                    let fg = style.foreground;
-                    let color = Rgba { r: fg.r as f32 / 255., g: fg.g as f32 / 255., b: fg.b as f32 / 255., a: 1. };
-                    colored.push((offset..end, color.into()));
-                }
-                offset += piece.len();
-            }
-            out.insert((h, l), colored);
+            out.insert((h, l), colored(&spans, &text));
         }
+    }
+    out
+}
+
+/// Colored spans for each line of a whole file, read top to bottom; empty
+/// when it has no grammar or is too big.
+pub fn highlight_lines(path: &str, lines: &[&str]) -> Vec<Spans> {
+    let Some(syntax) = syntax_for(path).filter(|_| lines.len() <= MAX_LINES) else { return Vec::new() };
+    let mut highlighter = HighlightLines::new(syntax, &THEME);
+    lines
+        .iter()
+        .map(|line| {
+            let text = display_text(line);
+            highlighter.highlight_line(&format!("{text}\n"), &SYNTAXES).map_or_else(|_| Spans::new(), |spans| colored(&spans, &text))
+        })
+        .collect()
+}
+
+fn colored(spans: &[(syntect::highlighting::Style, &str)], text: &str) -> Spans {
+    let mut offset = 0;
+    let mut out = Spans::new();
+    for (style, piece) in spans {
+        let end = (offset + piece.len()).min(text.len());
+        if end > offset {
+            let fg = style.foreground;
+            let color = Rgba { r: fg.r as f32 / 255., g: fg.g as f32 / 255., b: fg.b as f32 / 255., a: 1. };
+            out.push((offset..end, color.into()));
+        }
+        offset += piece.len();
     }
     out
 }
@@ -116,6 +134,16 @@ mod tests {
         let hl = highlight_diff("app/A.php", &diff);
         let colors: std::collections::HashSet<_> = hl[&(0, 2)].iter().map(|(_, c)| format!("{c:?}")).collect();
         assert!(colors.len() > 2, "expected several colors, got {colors:?}");
+    }
+
+    #[test]
+    fn whole_files_keep_state_across_lines() {
+        let lines = ["/* a comment", "still the comment */", "fn main() {}"];
+        let spans = highlight_lines("x.rs", &lines);
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0][0].1, spans[1][0].1, "the comment carries on");
+        assert_ne!(spans[1][0].1, spans[2][0].1);
+        assert!(highlight_lines("notes.unknownext", &lines).is_empty());
     }
 
     #[test]

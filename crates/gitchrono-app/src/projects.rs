@@ -37,6 +37,9 @@ pub struct Session {
     /// Check GitHub for new releases; `None` means on.
     #[serde(default)]
     pub auto_update: Option<bool>,
+    /// Have AI write the commit message once every change is staged.
+    #[serde(default)]
+    pub auto_commit_message: bool,
     /// Folder the last clone went into, offered for the next one.
     #[serde(default)]
     pub clone_dir: Option<PathBuf>,

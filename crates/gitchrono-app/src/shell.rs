@@ -6,16 +6,19 @@ use std::path::PathBuf;
 
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::Sizable as _;
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use gitchrono_core::Repo;
 use gitchrono_core::gitbin::{self, GitCheck};
 use gitchrono_core::summary::{self, RepoSummary};
+use gitchrono_core::sync::{self, SyncAction};
 
-use crate::projects::{self, Session};
+use crate::bulk::BulkSync;
+use crate::projects::{self, PullAction, Session};
 use crate::theme::{self, c};
 use crate::workspace::{Workspace, WorkspaceEvent};
 use crate::ui::{ButtonExt as _, button};
@@ -113,6 +116,8 @@ pub struct Shell {
     tab_drag: Option<TabDrag>,
     /// Branch and status of each repository listed on the new-tab page.
     summaries: HashMap<PathBuf, Result<RepoSummary, SharedString>>,
+    /// The running or last Fetch all / Pull all.
+    sync: Option<BulkSync>,
     filter: Entity<InputState>,
     _filter_sub: Subscription,
     /// Why the last action started from the home tab (creating a repository) failed.
@@ -148,7 +153,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, tab_drag: None, summaries: HashMap::new(), filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, tab_drag: None, summaries: HashMap::new(), sync: None, filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);
@@ -667,6 +672,88 @@ impl Shell {
         }
     }
 
+    /// Fetch or pull `paths`, showing how each goes in its row.
+    fn start_sync(&mut self, paths: Vec<PathBuf>, action: SyncAction, cx: &mut Context<Self>) {
+        if self.sync.as_ref().is_some_and(BulkSync::running) {
+            return;
+        }
+        self.sync = Some(BulkSync::new(&paths, matches!(action, SyncAction::Pull(_))));
+        let (tx, rx) = smol::channel::unbounded();
+        cx.background_spawn(async move {
+            sync::sync_repos(&paths, action, |path, outcome| {
+                tx.try_send((path.to_path_buf(), outcome)).ok();
+            })
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            while let Ok((path, outcome)) = rx.recv().await {
+                this.update(cx, |this, cx| {
+                    if let Some(sync) = &mut this.sync {
+                        sync.finish(path, outcome);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+            this.update(cx, |this, cx| this.refresh_summaries(cx)).ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// A group's Fetch all and Pull all, and the ▾ choosing how Pull all pulls.
+    fn sync_actions(&self, group: usize, paths: Vec<PathBuf>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let disabled = paths.is_empty() || self.sync.as_ref().is_some_and(BulkSync::running);
+        let chosen = cx.global::<crate::avatars::Prefs>().pull.filter(|a| *a != PullAction::FetchAll);
+        let tip = match chosen {
+            Some(action) => format!("Pull every repository listed: {}", action.label()),
+            None => "Pull every repository listed, each following its git settings".to_string(),
+        };
+        let fetch = paths.clone();
+        let shell = cx.entity().downgrade();
+        vec![
+            button(("fetch-all", group))
+                .label("Fetch all")
+                .xsmall()
+                .ghost()
+                .tooltip("Fetch every repository listed; no branch moves")
+                .disabled_if(disabled)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.start_sync(fetch.clone(), SyncAction::Fetch, cx);
+                }))
+                .into_any_element(),
+            button(("pull-all", group))
+                .label("Pull all")
+                .xsmall()
+                .ghost()
+                .tooltip(tip)
+                .disabled_if(disabled)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.start_sync(paths.clone(), SyncAction::Pull(Workspace::pull_mode(cx)), cx);
+                }))
+                .into_any_element(),
+            button(("pull-all-menu", group))
+                .ghost()
+                .xsmall()
+                .icon(Icon::new(IconName::ChevronDown).size(px(12.)))
+                .tooltip("Choose how Pull all pulls")
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.label("How Pull pulls, here and in the toolbar");
+                    for action in [PullAction::Merge, PullAction::FastForwardOnly, PullAction::Rebase] {
+                        let shell = shell.clone();
+                        menu = menu.item(PopupMenuItem::new(action.label()).checked(Some(action) == chosen).on_click(move |_, _, cx| {
+                            shell.update(cx, |this, cx| this.set_pref(cx, |s| s.pull_action = Some(action))).ok();
+                        }));
+                    }
+                    menu
+                })
+                .into_any_element(),
+        ]
+    }
+
     /// Branch, ahead/behind and change counts, as small chips.
     fn summary_chips(&self, path: &PathBuf) -> Vec<AnyElement> {
         let chip = |text: String, color: u32| {
@@ -710,16 +797,7 @@ impl Shell {
                         out.push(chip(format!("↓{behind}"), theme::WARN));
                     }
                 }
-                let changes: Vec<(String, u32)> = [
-                    (s.conflicted, "⚠", theme::DEL),
-                    (s.modified, "✎", theme::WARN),
-                    (s.added, "+", theme::ADD),
-                    (s.deleted, "−", theme::DEL),
-                ]
-                .into_iter()
-                .filter(|(n, ..)| *n > 0)
-                .map(|(n, sign, color)| (format!("{sign}{n}"), color))
-                .collect();
+                let changes = crate::ui::change_parts(s.conflicted, s.modified, s.added, s.deleted);
                 if !changes.is_empty() {
                     out.push(
                         div()
@@ -761,8 +839,9 @@ impl Shell {
             Some(base) => path.parent().filter(|parent| parent != base).and_then(|parent| parent.strip_prefix(base).ok()).map(|rel| rel.display().to_string()),
             None => Some(projects::short_path(path)),
         };
+        let sync_state = self.sync.as_ref().and_then(|s| s.row(path));
         div()
-            .id(id)
+            .id(id.clone())
             .h(px(32.))
             .flex_none()
             .flex()
@@ -786,7 +865,25 @@ impl Shell {
                     .children(self.summaries.get(path).and_then(|s| s.as_ref().ok()).and_then(|s| s.owner.clone())),
             )
             .children(self.summary_chips(path))
-            .child(div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().children(hint))
+            .child(match sync_state {
+                Some((text, color)) => {
+                    let full = text.clone();
+                    div()
+                        .id(SharedString::from(format!("{id}-sync")))
+                        .flex_1()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(c(color))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_right()
+                        .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                        .child(text)
+                        .into_any_element()
+                }
+                None => div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().children(hint).into_any_element(),
+            })
             .when(is_open, |d| {
                 d.child(div().px_1p5().rounded_sm().bg(c(theme::SELECTED)).text_xs().text_color(c(theme::ACCENT)).child("open"))
             })
@@ -880,13 +977,32 @@ impl Shell {
                     )
                     .child(div().flex_1().child(Input::new(&self.filter))),
             )
-            .when_some(self.error.clone(), |d, e| d.child(div().mt_2().text_sm().text_color(c(theme::DEL)).child(e)));
+            .when_some(self.error.clone(), |d, e| d.child(div().mt_2().text_sm().text_color(c(theme::DEL)).child(e)))
+            .when_some(self.sync.as_ref(), |d, sync| {
+                d.child(
+                    div()
+                        .mt_2()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .text_sm()
+                        .text_color(c(if sync.failed() { theme::DEL } else { theme::MUTED }))
+                        .child(sync.summary())
+                        .when(!sync.running(), |d| {
+                            d.child(button("sync-dismiss").label("Dismiss").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
+                                this.sync = None;
+                                cx.notify();
+                            })))
+                        }),
+                )
+            });
 
         if !recent.is_empty() {
             let key = PathBuf::new();
             let collapsed = is_collapsed(&key);
+            let actions = self.sync_actions(0, recent.clone(), cx);
             let rows = recent.iter().enumerate().map(|(i, path)| self.repo_row(format!("recent-{i}").into(), path, None, RowRemove::Recent, cx).into_any_element()).collect();
-            body = body.child(self.group("group-recent".into(), key, collapsed, "Recent".into(), format!("{}", recent.len()), Vec::new(), rows, cx));
+            body = body.child(self.group("group-recent".into(), key, collapsed, "Recent".into(), format!("{}", recent.len()), actions, rows, cx));
         }
 
         for (fi, folder) in self.session.folders.iter().enumerate() {
@@ -903,7 +1019,8 @@ impl Shell {
             };
             let remove = folder.clone();
             let open_all: Vec<PathBuf> = shown.iter().map(|p| (*p).clone()).collect();
-            let actions = vec![
+            let mut actions = self.sync_actions(fi + 1, open_all.clone(), cx);
+            actions.extend([
                 button(("folder-open-all", fi))
                     .label("Open all")
                     .xsmall()
@@ -930,7 +1047,7 @@ impl Shell {
                         this.confirm_remove_folder(remove.clone(), cx);
                     }))
                     .into_any_element(),
-            ];
+            ]);
             let rows = shown
                 .iter()
                 .enumerate()
