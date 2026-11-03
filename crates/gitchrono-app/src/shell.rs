@@ -105,6 +105,8 @@ pub struct Shell {
     pub(crate) palette: Option<crate::palette::Palette>,
     pub(crate) settings: Option<crate::settings::Settings>,
     pub(crate) update: crate::footer::UpdateState,
+    /// When the last update check finished.
+    pub(crate) last_update_check: Option<std::time::SystemTime>,
     pub(crate) about: Option<crate::footer::About>,
     pub(crate) clone_dialog: Option<crate::clone_ui::CloneDialog>,
     /// Whether a usable git was found; without one the help page replaces the tabs.
@@ -155,7 +157,7 @@ impl Shell {
         });
         let session = Session::load();
         let mut this =
-            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, tab_drag: None, summaries: HashMap::new(), sync: None, filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
+            Self { tabs: Vec::new(), active: 0, palette: None, settings: None, update: Default::default(), last_update_check: None, about: None, clone_dialog: None, git: gitbin::check(), pending_open: None, session: session.clone(), scans: HashMap::new(), confirm: None, tab_drag: None, summaries: HashMap::new(), sync: None, filter, _filter_sub: filter_sub, error: None, focus: cx.focus_handle(), _keystrokes: keystrokes };
 
         if matches!(this.git, GitCheck::Ok { .. }) {
             this.restore(open, window, cx);

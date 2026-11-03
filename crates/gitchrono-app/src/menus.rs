@@ -369,13 +369,40 @@ pub fn files_menu(menu: Menu, ws: &Ws, files: &[FileChange], staged: bool) -> Me
     })
 }
 
-/// The `.gitignore` patterns that would hide `path`.
-fn ignore_menu(ws: &Ws, path: &str) -> Menu {
-    gitchrono_core::ignore_choices(path).into_iter().fold(Menu::new(), |menu, choice| {
-        let pattern = choice.pattern;
+/// The `.gitignore` patterns that would hide `path`. A tracked file stays
+/// tracked when ignored, so it also gets "and stop tracking", as in GitKraken.
+fn ignore_menu(ws: &Ws, path: &str, tracked: bool) -> Menu {
+    let choices = gitchrono_core::ignore_choices(path);
+    let name = path.rsplit('/').next().unwrap_or(path).to_string();
+    let exact = choices[0].pattern.clone();
+    let menu = choices.into_iter().fold(Menu::new(), |menu, choice| {
+        let (pattern, name) = (choice.pattern, name.clone());
         menu.item(item(choice.label, ws, move |this, _, cx| {
-            let pattern = pattern.clone();
-            this.run("Ignoring", Change::Status, cx, move |r| r.ignore(&pattern));
+            let (pattern, name) = (pattern.clone(), name.clone());
+            this.run_inner("Ignoring".into(), Change::Status, true, cx, move |r| r.ignore(&pattern), move |this, ok, cx| {
+                if ok && tracked {
+                    this.notice = Some(format!("Added to .gitignore, but {name} is still tracked, so its changes still show. Use Ignore and stop tracking to stop.").into());
+                    cx.notify();
+                }
+            });
+        }))
+    });
+    menu.when(tracked, |menu| {
+        let path = path.to_string();
+        menu.separator().item(item(format!("Ignore '{name}' and stop tracking it…"), ws, move |this, window, cx| {
+            let (path, pattern) = (path.clone(), exact.clone());
+            this.confirm(
+                "Stop tracking",
+                format!("Add {path} to .gitignore and stop tracking it? It stays on your disk, but your next commit removes it from the repository, and anyone who pulls that commit has it deleted from their copy."),
+                "Stop tracking",
+                "Stopping tracking",
+                window,
+                cx,
+                move |r| {
+                    r.ignore(&pattern)?;
+                    r.stop_tracking(&path)
+                },
+            );
         }))
     })
 }
@@ -405,8 +432,9 @@ pub fn file_menu(menu: Menu, ws: &Ws, change: &FileChange, staged: bool) -> Menu
                 this.run("Taking theirs", Change::Status, cx, move |r| r.resolve_whole_file(&p, false))
             }))
     })
-    // Ignoring a tracked file wouldn't stop git tracking it.
-    .when(change.status == FileStatus::Untracked, |menu| menu.submenu("Ignore", ignore_menu(ws, &path)))
+    .when(!conflicted && change.status != FileStatus::Deleted, |menu| {
+        menu.submenu("Ignore", ignore_menu(ws, &path, change.status != FileStatus::Untracked))
+    })
     .when(!conflicted, |menu| {
         menu.item(item("Stash file", ws, move |this, _, cx| {
             let path = stash.clone();

@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Hunk- and line-level staging / unstaging | ✅ | `partial_patch` + `git apply --cached --recount`, integration tested |
 | Discard changes (file / hunk / lines) | ✅ | with confirmation |
 | Right-click context menus (commit, branch, remote, tag, stash, file) | ✅ | native menus on macOS and Windows (drawn on Linux); branch and `HEAD` labels include their commit's actions |
-| File menu: ignore (file, extension, folder), stash file, open, show in Finder, copy full path, create patch | ✅ | no external diff tool or editor yet: they need a setting |
+| File menu: ignore (file, extension, folder; tracked files can also stop being tracked), stash file, open, show in Finder, copy full path, create patch | ✅ | no external diff tool or editor yet: they need a setting |
 | Branch menu: fast-forward, merge into it, interactive rebase onto it, force delete, set upstream, push and start a PR | ✅ | fast-forward only when the branch is behind HEAD; force delete only when it has commits HEAD doesn't; the PR item needs `gh` |
 | Commit menu: drop commit, move commit up / down | ✅ | commits on HEAD with no merges after them; a commit a remote has asks first |
 | Create/rename/delete branch & tag dialogs | ✅ | prompt overlay |
