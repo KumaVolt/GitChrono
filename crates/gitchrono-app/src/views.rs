@@ -8,13 +8,14 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::Icon;
-use gpui_kit::component::menu::{ContextMenu, ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::file_tree::{self, TreeRow};
+use crate::context_menu::{Menu, RightClickMenu as _};
 use crate::graph_paint::{self, Node, ROW_HEIGHT, WipLine};
 use crate::icons::ToolIcon;
 use crate::menus;
@@ -235,7 +236,7 @@ fn branch_badge(name: &str) -> Div {
 }
 
 /// A staging list's title with its file count in a pill beside it.
-fn section_header(title: &str, count: usize) -> Div {
+fn section_header(title: &str, count: impl std::fmt::Display) -> Div {
     div()
         .flex_1()
         .px_3()
@@ -561,7 +562,7 @@ impl Workspace {
                     }
                 }))
                 .map(|d| crate::drag::branch_drag(d, &drag_name, kind, cx))
-                .context_menu(move |menu, window, cx| menus::ref_menu(menu, &ws, &name, kind, current.as_deref(), index, filter_state, &remotes, window, cx))
+                .right_click_menu(move |_, cx| menus::ref_menu(Menu::new(), &ws, &name, kind, current.as_deref(), index, filter_state, &remotes, cx))
         };
 
         let mut col = div()
@@ -633,7 +634,7 @@ impl Workspace {
                         .child(div().truncate().child(name))
                         .child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child(branch))
                         .on_click(cx.listener(move |_, _, _, cx| cx.emit(WorkspaceEvent::OpenPath(open.clone()))))
-                        .context_menu(move |menu, _, _| menus::worktree_menu(menu, &ws, for_menu.clone(), removable)),
+                        .right_click_menu(move |_, _| menus::worktree_menu(Menu::new(), &ws, for_menu.clone(), removable)),
                 );
             }
         }
@@ -674,9 +675,9 @@ impl Workspace {
                                 this.run("Initializing submodule", Change::Refs, cx, move |r| r.update_submodule(&p));
                             }
                         }))
-                        .context_menu({
+                        .right_click_menu({
                             let (open, update) = (full.clone(), sub.path.clone());
-                            move |menu, _, _| menus::submodule_menu(menu, &ws, open.clone(), update.clone(), copy.clone())
+                            move |_, _| menus::submodule_menu(Menu::new(), &ws, open.clone(), update.clone(), copy.clone())
                         }),
                 );
             }
@@ -714,9 +715,9 @@ impl Workspace {
                         .when(pr.is_draft, |d| d.child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child("draft")))
                         .child(div().flex_none().text_xs().text_color(c(theme::FAINT)).child(pr.author.login.clone()))
                         .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
-                        .context_menu({
+                        .right_click_menu({
                             let url = pr.url.clone();
-                            move |menu, _, _| menus::pr_menu(menu, &ws, number, url.clone())
+                            move |_, _| menus::pr_menu(Menu::new(), &ws, number, url.clone())
                         }),
                 );
             }
@@ -893,7 +894,7 @@ impl Workspace {
     /// A ref label in graph row `row` that checks out its branch on double-click
     /// and has the sidebar's menu on right-click.
     /// `shown` may differ from `target` (a local branch with its remote folded in).
-    fn ref_chip_as(&self, id: ElementId, row: usize, target: &RefLabel, shown: &RefLabel, color: Hsla, cx: &mut Context<Self>) -> ContextMenu<Stateful<Div>> {
+    fn ref_chip_as(&self, id: ElementId, target: &RefLabel, shown: &RefLabel, color: Hsla, cx: &mut Context<Self>) -> Stateful<Div> {
         let (name, kind) = (target.name.clone(), target.kind);
         let ws = cx.entity().downgrade();
         let current = self.status.branch.clone();
@@ -914,30 +915,7 @@ impl Workspace {
                     _ => {}
                 }
             }))
-            .context_menu(move |menu, window, cx| {
-                // Keep the row's label list (which draws this menu) up while the
-                // menu is open, then close it with the menu.
-                let menu_id = cx.entity_id();
-                ws.update(cx, |this, cx| {
-                    this.refs_menu = Some((row, menu_id));
-                    cx.notify();
-                })
-                .ok();
-                let on_dismiss = ws.clone();
-                cx.subscribe_self(move |_, _: &DismissEvent, cx| {
-                    on_dismiss
-                        .update(cx, |this, cx| {
-                            if this.refs_menu.is_some_and(|(_, m)| m == menu_id) {
-                                this.refs_menu = None;
-                                this.refs_hover = (None, None);
-                                cx.notify();
-                            }
-                        })
-                        .ok();
-                })
-                .detach();
-                menus::ref_menu(menu, &ws, &menu_name, kind, current.as_deref(), stash, filter_state, &remotes, window, cx)
-            })
+            .right_click_menu(move |_, cx| menus::ref_menu(Menu::new(), &ws, &menu_name, kind, current.as_deref(), stash, filter_state, &remotes, cx))
     }
 
     fn render_row(&self, row: usize, gutter: Pixels, cx: &mut Context<Self>) -> AnyElement {
@@ -1027,7 +1005,7 @@ impl Workspace {
                     }))
                     // Hovering a row's labels lists all of them on top of the rows below;
                     // the list stays open while the pointer is on it.
-                    .when(commit.refs.len() > 1 && (self.refs_hover.0 == Some(row) || self.refs_hover.1 == Some(row) || self.refs_menu.is_some_and(|(r, _)| r == row)), |d| {
+                    .when(commit.refs.len() > 1 && (self.refs_hover.0 == Some(row) || self.refs_hover.1 == Some(row)), |d| {
                         let mut refs = commit.refs.clone();
                         if let Some((primary, _)) = primary_ref(&commit.refs) {
                             let name = primary.name.trim_end_matches(" ☁").to_string();
@@ -1052,14 +1030,14 @@ impl Workspace {
                                         this.refs_hover.1 = if *hovered { Some(row) } else { this.refs_hover.1.filter(|r| *r != row) };
                                         cx.notify();
                                     }))
-                                    .children(refs.iter().enumerate().map(|(i, r)| self.ref_chip_as(("ref-in-list", row * 64 + i).into(), row, r, r, color, cx))),
+                                    .children(refs.iter().enumerate().map(|(i, r)| self.ref_chip_as(("ref-in-list", row * 64 + i).into(), r, r, color, cx))),
                             ),
                         )))
                     })
                     .when_some(primary_ref(&commit.refs), |d, (primary, rest)| {
                         let name = primary.name.trim_end_matches(" ☁");
                         let real = commit.refs.iter().find(|r| r.name == name && r.kind == primary.kind).cloned().unwrap_or_else(|| primary.clone());
-                        d.child(self.ref_chip_as(("ref", row).into(), row, &real, &primary, color, cx)).when(rest > 0, |d| {
+                        d.child(self.ref_chip_as(("ref", row).into(), &real, &primary, color, cx)).when(rest > 0, |d| {
                             d.child(
                                 div()
                                     .flex_none()
@@ -1129,11 +1107,11 @@ impl Workspace {
             )
             .child(div().w(px(150.)).flex_none().px_2().truncate().text_color(c(theme::MUTED)).child(commit.author_name.clone()))
             .child(div().w(px(110.)).flex_none().px_2().text_xs().text_color(c(theme::FAINT)).child(relative_time(commit.time)))
-            .context_menu(move |menu, _, cx| {
+            .right_click_menu(move |_, cx| {
                 if in_multi {
-                    menus::multi_menu(menu, &ws, cx)
+                    menus::multi_menu(Menu::new(), &ws, cx)
                 } else {
-                    menus::commit_menu(menu, &ws, &id, current.as_deref(), cx)
+                    menus::commit_menu(Menu::new(), &ws, &id, current.as_deref(), cx)
                 }
             })
             .into_any_element()
@@ -1378,7 +1356,7 @@ impl Workspace {
                         let signer = if sig.signer.is_empty() { String::new() } else { format!(" · {}", sig.signer) };
                         d.child(div().text_xs().text_color(c(color)).child(format!("{} {}{signer}", if sig.is_good() { "✓" } else { "⚠" }, sig.describe())))
                     })
-                    .context_menu(move |menu, _, cx| menus::commit_menu(menu, &ws, &menu_id, current.as_deref(), cx)),
+                    .right_click_menu(move |_, cx| menus::commit_menu(Menu::new(), &ws, &menu_id, current.as_deref(), cx)),
             )
             .child(
                 div()
@@ -1420,10 +1398,10 @@ impl Workspace {
                         let source = DiffSource::Commit { id: commit_id.clone(), path: path.clone() };
                         this.show_diff(title.clone(), source, cx);
                     }))
-                    .context_menu({
+                    .right_click_menu({
                         let ws = cx.entity().downgrade();
                         let path = f.path.clone();
-                        move |menu, _, _| menus::commit_file_menu(menu, &ws, &path)
+                        move |_, _| menus::commit_file_menu(Menu::new(), &ws, &path)
                     })
                     .into_any_element()
             })))
@@ -1593,11 +1571,11 @@ impl Workspace {
                         this.show_workdir_diff(file, staged, cx);
                     }
                 }))
-                .context_menu(move |menu, _, _| {
+                .right_click_menu(move |_, _| {
                     if menu_files.is_empty() {
-                        menus::file_menu(menu, &ws, &for_menu, staged)
+                        menus::file_menu(Menu::new(), &ws, &for_menu, staged)
                     } else {
-                        menus::files_menu(menu, &ws, &menu_files, staged)
+                        menus::files_menu(Menu::new(), &ws, &menu_files, staged)
                     }
                 })
                 .into_any_element()
@@ -1606,10 +1584,19 @@ impl Workspace {
 
     fn render_staging(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let st = &self.status;
-        let unstaged: Vec<FileChange> = st.conflicted.iter().chain(&st.unstaged).cloned().collect();
+        let query = self.file_filter.read(cx).value().to_lowercase();
+        let filtering = !query.trim().is_empty();
+        // Every word somewhere in the path: "views rs" finds src/views.rs.
+        let matches = |f: &&FileChange| query.split_whitespace().all(|word| f.path.to_lowercase().contains(word));
+        let unstaged: Vec<FileChange> = st.conflicted.iter().chain(&st.unstaged).filter(matches).cloned().collect();
+        let staged: Vec<FileChange> = st.staged.iter().filter(matches).cloned().collect();
+        let count = |shown: usize, all: usize| if filtering { format!("{shown} of {all}") } else { all.to_string() };
+        let (unstaged_count, staged_count) = (count(unstaged.len(), st.conflicted.len() + st.unstaged.len()), count(staged.len(), st.staged.len()));
+        // While filtering, the "all" buttons act on what's shown.
+        let (stage_shown, unstage_shown) = (unstaged.clone(), staged.clone());
         let can_commit = !st.staged.is_empty() || self.amend;
         let picked_unstaged = self.picked_files(&unstaged, false);
-        let picked_staged = self.picked_files(&st.staged, true);
+        let picked_staged = self.picked_files(&staged, true);
         let pick_button = |id: &'static str, picked: Vec<FileChange>, staged: bool, cx: &mut Context<Self>| {
             (picked.len() > 1).then(|| {
                 button(id)
@@ -1642,6 +1629,7 @@ impl Workspace {
                     .child(div().flex_1())
                     .child(self.view_switch("staging-view", cx)),
             )
+            .child(div().flex_none().px_3().pt_2().child(Input::new(&self.file_filter).small().cleanable(true)))
             .child(
                 div()
                     .flex()
@@ -1650,11 +1638,19 @@ impl Workspace {
                     .pr_2()
                     .pt_2p5()
                     .pb_1p5()
-                    .child(section_header("Unstaged files", unstaged.len()))
+                    .child(section_header("Unstaged files", unstaged_count))
                     .children(pick_button("stage-picked", picked_unstaged, false, cx))
-                    .child(tinted_button("stage-all", "Stage all changes", IconName::ListPlus, theme::ADD, cx).disabled_if(unstaged.is_empty()).on_click(
-                        cx.listener(|this, _, _, cx| this.run("Staging", Change::Status, cx, |r| r.stage_all())),
-                    )),
+                    .child(
+                        tinted_button("stage-all", if filtering { "Stage shown" } else { "Stage all changes" }, IconName::ListPlus, theme::ADD, cx)
+                            .disabled_if(unstaged.is_empty())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if filtering {
+                                    this.stage_files(&stage_shown, false, cx);
+                                } else {
+                                    this.run("Staging", Change::Status, cx, |r| r.stage_all());
+                                }
+                            })),
+                    ),
             )
             .child(self.file_list("unstaged", &unstaged, false, cx))
             .child(
@@ -1667,13 +1663,21 @@ impl Workspace {
                     .pb_1p5()
                     .border_t_1()
                     .border_color(c(theme::BORDER))
-                    .child(section_header("Staged files", st.staged.len()))
+                    .child(section_header("Staged files", staged_count))
                     .children(pick_button("unstage-picked", picked_staged, true, cx))
-                    .child(tinted_button("unstage-all", "Unstage all changes", IconName::ListMinus, theme::DEL, cx).disabled_if(st.staged.is_empty()).on_click(
-                        cx.listener(|this, _, _, cx| this.run("Unstaging", Change::Status, cx, |r| r.unstage_all())),
-                    )),
+                    .child(
+                        tinted_button("unstage-all", if filtering { "Unstage shown" } else { "Unstage all changes" }, IconName::ListMinus, theme::DEL, cx)
+                            .disabled_if(staged.is_empty())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if filtering {
+                                    this.stage_files(&unstage_shown, true, cx);
+                                } else {
+                                    this.run("Unstaging", Change::Status, cx, |r| r.unstage_all());
+                                }
+                            })),
+                    ),
             )
-            .child(self.file_list("staged", &st.staged, true, cx))
+            .child(self.file_list("staged", &staged, true, cx))
             .child(
                 div()
                     .flex_none()

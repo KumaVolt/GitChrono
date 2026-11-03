@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+
+use crate::context_menu::{Menu, RightClickMenu as _};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
@@ -611,7 +613,7 @@ impl Shell {
                         if home {
                             d.into_any_element()
                         } else {
-                            d.context_menu(move |menu, _, _| crate::menus::tab_menu(menu, &shell, i, count)).into_any_element()
+                            d.right_click_menu(move |_, _| crate::menus::tab_menu(Menu::new(), &shell, i, count)).into_any_element()
                         }
                     })
             }))
@@ -1148,6 +1150,7 @@ impl Render for Shell {
             .flex_col()
             .bg(c(theme::BG))
             .text_color(c(theme::TEXT))
+            .on_action(crate::context_menu::choose)
             .on_action(cx.listener(|this, _: &NewTab, window, cx| this.new_tab(window, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| this.close_tab(this.active, window, cx)))
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.cycle(1, window, cx)))

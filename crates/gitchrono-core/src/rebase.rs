@@ -103,7 +103,10 @@ impl Repo {
         if steps.first().is_some_and(|s| matches!(s.action, RebaseAction::Squash | RebaseAction::Fixup)) {
             bail!("the first commit can't be squashed: there is nothing before it to meld into");
         }
-        let dir = std::env::temp_dir().join(format!("gitchrono-rebase-{}-{}", std::process::id(), base.replace('/', "-")));
+        // One folder per run: two rebases with the same base can run at once (two tabs, parallel tests).
+        static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("gitchrono-rebase-{}-{run}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let mut todo = String::new();
         for (i, step) in steps.iter().enumerate() {

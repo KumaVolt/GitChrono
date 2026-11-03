@@ -2,6 +2,7 @@ mod ai;
 mod avatars;
 mod bulk;
 mod clone_ui;
+mod context_menu;
 mod conflict_ui;
 mod diff_view;
 mod drag;

@@ -147,9 +147,6 @@ pub struct Workspace {
     pub file_multi: (bool, Vec<String>),
     /// Graph row whose ref labels are hovered: (label cell, the full list it opens).
     pub refs_hover: (Option<usize>, Option<usize>),
-    /// Graph row with a label's context menu open, and that menu. The menu is
-    /// drawn by its label, so the row's label list stays up until it closes.
-    pub refs_menu: Option<(usize, EntityId)>,
     /// Graph column width set by dragging its edge; `None` sizes it to the lanes.
     pub graph_width: Option<f32>,
     /// Re-render when a profile picture finishes downloading.
@@ -231,6 +228,9 @@ pub struct Workspace {
     reselect: Option<String>,
     pub sidebar_filter: Entity<InputState>,
     _sidebar_filter_sub: Subscription,
+    /// Narrows the staged and unstaged file lists.
+    pub file_filter: Entity<InputState>,
+    _file_filter_sub: Subscription,
     _activation: Subscription,
 }
 
@@ -248,6 +248,8 @@ impl Workspace {
         });
         let sidebar_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter refs…").autocorrect(false));
         let sidebar_filter_sub = cx.observe(&sidebar_filter, |_, _, cx| cx.notify());
+        let file_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files…").autocorrect(false));
+        let file_filter_sub = cx.observe(&file_filter, |_, _, cx| cx.notify());
         let mut this = Self {
             repo: None,
             snap: Arc::default(),
@@ -272,7 +274,6 @@ impl Workspace {
             graph_width: None,
             _avatars: cx.observe(&cx.global::<crate::avatars::AvatarStore>().0.clone(), |_, _, cx| cx.notify()),
             refs_hover: (None, None),
-            refs_menu: None,
             file_tree: std::env::var_os("GITCHRONO_FOLDERS").is_some(),
             collapsed_dirs: Default::default(),
             diff: None,
@@ -323,6 +324,8 @@ impl Workspace {
             reselect: None,
             sidebar_filter,
             _sidebar_filter_sub: sidebar_filter_sub,
+            file_filter,
+            _file_filter_sub: file_filter_sub,
             _activation: activation,
         };
         if let Some(path) = path {
@@ -402,6 +405,56 @@ impl Workspace {
                 self.apply_change(change, cx);
             }
         }
+    }
+
+    /// Open a file of the repository with its default program, or show it in
+    /// the file manager.
+    pub fn open_file(&self, path: &str, reveal: bool, cx: &mut App) {
+        let Some(repo) = &self.repo else { return };
+        let full = repo.root().join(path);
+        if reveal {
+            cx.reveal_path(&full);
+        } else {
+            cx.open_with_system(&full);
+        }
+    }
+
+    pub fn copy_full_path(&self, path: &str, cx: &mut App) {
+        if let Some(repo) = &self.repo {
+            cx.write_to_clipboard(ClipboardItem::new_string(repo.root().join(path).to_string_lossy().into_owned()));
+        }
+    }
+
+    /// Ask where to save the changes to `files` as one patch, then save it.
+    pub fn save_patch(&mut self, files: Vec<FileChange>, staged: bool, cx: &mut Context<Self>) {
+        let Some(repo) = self.repo.clone() else { return };
+        let name = match files.as_slice() {
+            [one] => format!("{}.patch", one.path.rsplit('/').next().unwrap_or(&one.path)),
+            _ => "changes.patch".to_string(),
+        };
+        // Not the repository: the patch would show up as a new file in it.
+        let dir = dirs::download_dir().or_else(dirs::home_dir).unwrap_or_else(|| repo.root().to_path_buf());
+        let target = cx.prompt_for_new_path(&dir, Some(&name));
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(path))) = target.await else { return };
+            let saved = cx
+                .background_executor()
+                .spawn(async move {
+                    let patch: String = files.iter().map(|f| repo.file_patch(f, staged)).collect::<Result<Vec<_>>>()?.concat();
+                    std::fs::write(&path, patch)?;
+                    anyhow::Ok(path)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                match saved {
+                    Ok(path) => this.notice = Some(format!("Saved the patch to {}.", path.display()).into()),
+                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn commit_form_empty(&self, cx: &App) -> bool {
