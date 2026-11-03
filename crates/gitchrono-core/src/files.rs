@@ -64,6 +64,13 @@ impl Repo {
         Ok(())
     }
 
+    /// Stop tracking `path` but keep it on disk (`git rm --cached`): the next
+    /// commit removes it from the repository. Refuses when its staged changes
+    /// are in neither the last commit nor the file, which would lose them.
+    pub fn stop_tracking(&self, path: &str) -> Result<()> {
+        self.git(&["rm", "--cached", "--quiet", "--", path]).map(drop)
+    }
+
     /// Stash just these files (untracked ones too), leaving everything else.
     pub fn stash_files(&self, paths: &[&str]) -> Result<()> {
         let message = match paths {

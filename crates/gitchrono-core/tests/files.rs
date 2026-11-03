@@ -107,3 +107,32 @@ fn a_file_patch_applies_elsewhere() {
     let read = |p: &str| std::fs::read_to_string(dir.join(p)).unwrap();
     assert_eq!((read("a.txt"), read("b.txt"), read("new.txt")), ("one\nTWO\n".into(), "b staged\n".into(), "brand new\n".into()));
 }
+
+#[test]
+fn ignoring_a_tracked_file_needs_stop_tracking_too() {
+    let (dir, repo) = repo("stop-tracking");
+    std::fs::write(dir.join("a.txt"), "changed\n").unwrap();
+    let choice = &ignore_choices("a.txt")[0];
+
+    repo.ignore(&choice.pattern).unwrap();
+    let modified = |repo: &Repo| repo.status().unwrap().unstaged.iter().any(|f| f.path == "a.txt");
+    assert!(modified(&repo), "a tracked file's changes still show once it's in .gitignore");
+
+    repo.stop_tracking("a.txt").unwrap();
+    let status = repo.status().unwrap();
+    assert!(!modified(&repo));
+    assert!(status.staged.iter().any(|f| f.path == "a.txt" && f.status == FileStatus::Deleted), "removed from the repository at the next commit");
+    assert!(!untracked(&repo).contains(&"a.txt".to_string()), "and ignored, not untracked");
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "changed\n", "still on disk");
+}
+
+#[test]
+fn stop_tracking_refuses_to_lose_staged_changes() {
+    let (dir, repo) = repo("stop-tracking-staged");
+    std::fs::write(dir.join("a.txt"), "staged\n").unwrap();
+    git(&dir, &["add", "a.txt"]).unwrap();
+    std::fs::write(dir.join("a.txt"), "edited again\n").unwrap();
+
+    assert!(repo.stop_tracking("a.txt").is_err(), "the staged version is in neither the commit nor the file");
+    assert!(repo.status().unwrap().staged.iter().any(|f| f.path == "a.txt"));
+}
