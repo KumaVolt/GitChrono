@@ -2,7 +2,7 @@
 //! "About & credits" and the version on the right. Also the update flow and
 //! the About dialog.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::Sizable as _;
@@ -54,20 +54,33 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ("Claude Code", "Anthropic's AI coding assistant, which helped build GitChrono", "https://claude.com/claude-code"),
 ];
 
-/// First check shortly after launch, then every six hours.
+/// First check shortly after launch, then hourly, as Zed does. The hour is
+/// read from the wall clock every minute: timers stop while the Mac sleeps, so
+/// a one-hour timer could take days of real time to fire.
 const FIRST_CHECK: Duration = Duration::from_secs(8);
-const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
+const TICK: Duration = Duration::from_secs(60);
+const CHECK_EVERY: Duration = Duration::from_secs(3600);
+
+/// Whether a check is due `now`, given when the last one finished.
+fn check_due(last: Option<SystemTime>, now: SystemTime) -> bool {
+    // A clock set back counts as due rather than never.
+    last.is_none_or(|at| now.duration_since(at).map_or(true, |elapsed| elapsed >= CHECK_EVERY))
+}
 
 impl Shell {
     pub(crate) fn schedule_update_checks(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(FIRST_CHECK).await;
             loop {
-                let Ok(enabled) = this.update(cx, |this, _| this.auto_update_enabled()) else { return };
-                if enabled {
-                    let _ = this.update(cx, |this, cx| this.check_for_updates(false, cx));
+                let alive = this.update(cx, |this, cx| {
+                    if this.auto_update_enabled() && check_due(this.last_update_check, SystemTime::now()) {
+                        this.check_for_updates(false, cx);
+                    }
+                });
+                if alive.is_err() {
+                    return;
                 }
-                cx.background_executor().timer(CHECK_EVERY).await;
+                cx.background_executor().timer(TICK).await;
             }
         })
         .detach();
@@ -83,6 +96,7 @@ impl Shell {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
+                this.last_update_check = Some(SystemTime::now());
                 this.update = match result {
                     Ok(Some(release)) => UpdateState::Available(release),
                     Ok(None) if manual => UpdateState::UpToDate,
@@ -395,4 +409,24 @@ fn fetch_contributors() -> anyhow::Result<Vec<Contributor>> {
             })
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    use super::{CHECK_EVERY, check_due};
+
+    const MINUTE: Duration = Duration::from_secs(60);
+
+    #[test]
+    fn checks_once_an_hour() {
+        let then = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        assert!(check_due(None, then), "never checked");
+        assert!(!check_due(Some(then), then + 59 * MINUTE));
+        assert!(check_due(Some(then), then + 60 * MINUTE));
+        assert!(check_due(Some(then), then + 12 * 60 * MINUTE), "a long sleep: due as soon as the Mac wakes");
+        assert!(check_due(Some(then), then - MINUTE), "a clock set back doesn't stop checks");
+        assert!(CHECK_EVERY <= Duration::from_secs(3600), "GitHub allows 60 unauthenticated requests an hour");
+    }
 }
