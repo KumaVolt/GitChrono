@@ -1,25 +1,31 @@
 //! Right-click menus for commits, refs and files.
 
 use gitchrono_core::{FileChange, FileStatus, Operation, RefKind, ResetMode};
-use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use crate::context_menu::{Menu, MenuItem};
 use crate::watcher::Change;
 use crate::workspace::{Op, Workspace};
 
 type Ws = WeakEntity<Workspace>;
 
-/// Space kept around a menu that fills the window.
-const MENU_MARGIN: f32 = 48.;
+/// What showing a file in the file manager is called on this system.
+const REVEAL: &str = if cfg!(target_os = "macos") {
+    "Show in Finder"
+} else if cfg!(target_os = "windows") {
+    "Show in Explorer"
+} else {
+    "Show in file manager"
+};
 
 fn item(
     label: impl Into<SharedString>,
     ws: &Ws,
     f: impl Fn(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
-) -> PopupMenuItem {
+) -> MenuItem {
     let ws = ws.clone();
-    PopupMenuItem::new(label).on_click(move |_, window, cx| {
+    MenuItem::new(label, move |window, cx| {
         ws.update(cx, |this, cx| f(this, window, cx)).ok();
     })
 }
@@ -32,18 +38,18 @@ fn op_item(
     ws: &Ws,
     arg: String,
     op: fn(&gitchrono_core::Repo, &str) -> anyhow::Result<()>,
-) -> PopupMenuItem {
+) -> MenuItem {
     item(label, ws, move |this, _, cx| {
         let arg = arg.clone();
         this.run(busy, refresh, cx, move |r| op(r, &arg));
     })
 }
 
-fn copy_item(label: &str, ws: &Ws, text: String) -> PopupMenuItem {
+fn copy_item(label: &str, ws: &Ws, text: String) -> MenuItem {
     item(label.to_string(), ws, move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone())))
 }
 
-pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>, cx: &App) -> PopupMenu {
+pub fn commit_menu(menu: Menu, ws: &Ws, id: &str, current: Option<&str>, cx: &App) -> Menu {
     let short = id[..7].to_string();
     let rewrite = ws.upgrade().and_then(|w| {
         let snap = &w.read(cx).snap;
@@ -126,7 +132,7 @@ pub fn commit_menu(menu: PopupMenu, ws: &Ws, id: &str, current: Option<&str>, cx
 }
 
 /// Right-click on one of several selected commits.
-pub fn multi_menu(menu: PopupMenu, ws: &Ws, cx: &App) -> PopupMenu {
+pub fn multi_menu(menu: Menu, ws: &Ws, cx: &App) -> Menu {
     let Some(workspace) = ws.upgrade() else { return menu };
     let workspace = workspace.read(cx);
     let (n, has_merge, base) = (workspace.multi.len(), workspace.multi_has_merge(), workspace.multi_rebase_base());
@@ -140,7 +146,7 @@ pub fn multi_menu(menu: PopupMenu, ws: &Ws, cx: &App) -> PopupMenu {
 }
 
 /// Interactive rebase of the checked-out branch onto `onto`.
-fn interactive_rebase_item(cur: &str, onto: &str, ws: &Ws) -> PopupMenuItem {
+fn interactive_rebase_item(cur: &str, onto: &str, ws: &Ws) -> MenuItem {
     let base = onto.to_string();
     item(format!("Interactive rebase {cur} onto {onto}…"), ws, move |this, window, cx| this.open_rebase_editor(base.clone(), window, cx))
 }
@@ -149,7 +155,7 @@ fn interactive_rebase_item(cur: &str, onto: &str, ws: &Ws) -> PopupMenuItem {
 /// Branch and `HEAD` labels also offer the commit menu for the commit they point at.
 #[allow(clippy::too_many_arguments)]
 pub fn ref_menu(
-    menu: PopupMenu,
+    menu: Menu,
     ws: &Ws,
     name: &str,
     kind: RefKind,
@@ -157,9 +163,8 @@ pub fn ref_menu(
     index: usize,
     filter: (bool, bool),
     remotes: &[String],
-    window: &Window,
     cx: &App,
-) -> PopupMenu {
+) -> Menu {
     let name = name.to_string();
     let workspace = ws.upgrade();
     let refs = workspace.as_ref().map(|w| &w.read(cx).snap.refs);
@@ -327,21 +332,33 @@ pub fn ref_menu(
             })),
     };
     match tip {
-        // These menus outgrow small windows.
-        Some(tip) => commit_menu(menu.separator(), ws, tip, current, cx).scrollable(true).max_h(window.viewport_size().height - px(MENU_MARGIN)),
+        Some(tip) => commit_menu(menu.separator(), ws, tip, current, cx),
         None => menu,
     }
 }
 
 /// Several files picked in one staging list.
-pub fn files_menu(menu: PopupMenu, ws: &Ws, files: &[FileChange], staged: bool) -> PopupMenu {
+pub fn files_menu(menu: Menu, ws: &Ws, files: &[FileChange], staged: bool) -> Menu {
     let n = files.len();
-    let (pick, discard) = (files.to_vec(), files.to_vec());
-    menu.item(item(&format!("{} {n} files", if staged { "Unstage" } else { "Stage" }), ws, move |this, _, cx| {
+    let conflicted = files.iter().any(|f| f.status == FileStatus::Conflicted);
+    let (pick, discard, stash, patch) = (files.to_vec(), files.to_vec(), files.to_vec(), files.to_vec());
+    menu.item(item(format!("{} {n} files", if staged { "Unstage" } else { "Stage" }), ws, move |this, _, cx| {
         this.stage_files(&pick, staged, cx)
     }))
-    .when(!staged && files.iter().all(|f| f.status != FileStatus::Conflicted), |menu| {
-        menu.item(item(&format!("Discard changes to {n} files…"), ws, move |this, window, cx| {
+    .when(!conflicted, |menu| {
+        menu.item(item(format!("Stash {n} files"), ws, move |this, _, cx| {
+            let paths: Vec<String> = stash.iter().map(|f| f.path.clone()).collect();
+            this.run("Stashing", Change::Refs, cx, move |r| r.stash_files(&paths.iter().map(String::as_str).collect::<Vec<_>>()));
+        }))
+    })
+    .separator()
+    .item(copy_item("Copy paths", ws, files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join("\n")))
+    .when(!conflicted, |menu| {
+        menu.item(item(format!("Create patch from {n} files…"), ws, move |this, _, cx| this.save_patch(patch.clone(), staged, cx)))
+    })
+    .separator()
+    .when(!staged && !conflicted, |menu| {
+        menu.item(item(format!("Discard changes to {n} files…"), ws, move |this, window, cx| {
             let files = discard.clone();
             let untracked = files.iter().filter(|f| f.status == FileStatus::Untracked).count();
             let note = if untracked > 0 { format!(" {untracked} untracked file(s) will be deleted.") } else { String::new() };
@@ -350,14 +367,24 @@ pub fn files_menu(menu: PopupMenu, ws: &Ws, files: &[FileChange], staged: bool) 
             });
         }))
     })
-    .separator()
-    .item(copy_item("Copy paths", ws, files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join("\n")))
 }
 
-pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) -> PopupMenu {
+/// The `.gitignore` patterns that would hide `path`.
+fn ignore_menu(ws: &Ws, path: &str) -> Menu {
+    gitchrono_core::ignore_choices(path).into_iter().fold(Menu::new(), |menu, choice| {
+        let pattern = choice.pattern;
+        menu.item(item(choice.label, ws, move |this, _, cx| {
+            let pattern = pattern.clone();
+            this.run("Ignoring", Change::Status, cx, move |r| r.ignore(&pattern));
+        }))
+    })
+}
+
+pub fn file_menu(menu: Menu, ws: &Ws, change: &FileChange, staged: bool) -> Menu {
     let path = change.path.clone();
-    let c1 = change.clone();
-    let c2 = change.clone();
+    let conflicted = change.status == FileStatus::Conflicted;
+    let (c1, discard, patch) = (change.clone(), change.clone(), change.clone());
+    let (stash, open, reveal, full) = (path.clone(), path.clone(), path.clone(), path.clone());
     menu.item(item(if staged { "Unstage file" } else { "Stage file" }, ws, move |this, _, cx| {
         let path = c1.path.clone();
         if staged {
@@ -366,7 +393,7 @@ pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) ->
             this.run("Staging", Change::Status, cx, move |r| r.stage(&[&path]));
         }
     }))
-    .when(change.status == FileStatus::Conflicted, |menu| {
+    .when(conflicted, |menu| {
         let (o, t, e) = (path.clone(), path.clone(), path.clone());
         menu.item(item("Resolve in editor", ws, move |this, _, cx| this.open_conflict(e.clone(), cx)))
             .item(item("Take ours (whole file)", ws, move |this, _, cx| {
@@ -377,25 +404,40 @@ pub fn file_menu(menu: PopupMenu, ws: &Ws, change: &FileChange, staged: bool) ->
                 let p = t.clone();
                 this.run("Taking theirs", Change::Status, cx, move |r| r.resolve_whole_file(&p, false))
             }))
-            .separator()
     })
-    .when(!staged && change.status != FileStatus::Conflicted, |menu| {
+    // Ignoring a tracked file wouldn't stop git tracking it.
+    .when(change.status == FileStatus::Untracked, |menu| menu.submenu("Ignore", ignore_menu(ws, &path)))
+    .when(!conflicted, |menu| {
+        menu.item(item("Stash file", ws, move |this, _, cx| {
+            let path = stash.clone();
+            this.run("Stashing", Change::Refs, cx, move |r| r.stash_files(&[&path]));
+        }))
+    })
+    .separator()
+    .when(change.status != FileStatus::Deleted, |menu| {
+        menu.item(item("Open in default program", ws, move |this, _, cx| this.open_file(&open, false, cx)))
+            .item(item(REVEAL, ws, move |this, _, cx| this.open_file(&reveal, true, cx)))
+    })
+    .separator()
+    .item(copy_item("Copy path", ws, path.clone()))
+    .item(item("Copy full path", ws, move |this, _, cx| this.copy_full_path(&full, cx)))
+    .when(!conflicted, |menu| {
+        menu.item(item("Create patch from file changes…", ws, move |this, _, cx| this.save_patch(vec![patch.clone()], staged, cx)))
+    })
+    .separator()
+    .when(change.status != FileStatus::Untracked && change.status != FileStatus::Added, |menu| history_items(menu, ws, &path))
+    .when(!staged && !conflicted, |menu| {
         menu.item(item("Discard changes…", ws, move |this, window, cx| {
-            let change = c2.clone();
+            let change = discard.clone();
             let what = if change.status == FileStatus::Untracked { "Delete untracked file" } else { "Discard all changes to" };
             this.confirm("Discard changes", format!("{what} {}? This cannot be undone.", change.path), "Discard", "Discarding", window, cx, move |r| {
                 r.discard(&change)
             });
         }))
     })
-    .separator()
-    .when(change.status != FileStatus::Untracked && change.status != FileStatus::Added, |menu| {
-        history_items(menu, ws, &path)
-    })
-    .item(copy_item("Copy path", ws, path))
 }
 
-fn history_items(menu: PopupMenu, ws: &Ws, path: &str) -> PopupMenu {
+fn history_items(menu: Menu, ws: &Ws, path: &str) -> Menu {
     let h = path.to_string();
     let b = path.to_string();
     menu.item(item("File history", ws, move |this, _, cx| this.show_file_history(h.clone(), cx)))
@@ -404,7 +446,7 @@ fn history_items(menu: PopupMenu, ws: &Ws, path: &str) -> PopupMenu {
 }
 
 /// Menu for a file in a commit's changed-file list.
-pub fn commit_file_menu(menu: PopupMenu, ws: &Ws, path: &str) -> PopupMenu {
+pub fn commit_file_menu(menu: Menu, ws: &Ws, path: &str) -> Menu {
     history_items(menu, ws, path).item(copy_item("Copy path", ws, path.to_string()))
 }
 
@@ -418,7 +460,7 @@ pub fn operation_name(op: Operation) -> &'static str {
     }
 }
 
-pub fn worktree_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, removable: bool) -> PopupMenu {
+pub fn worktree_menu(menu: Menu, ws: &Ws, path: std::path::PathBuf, removable: bool) -> Menu {
     let open = path.clone();
     let remove = path.clone();
     menu.item(item("Open in tab", ws, move |_, _, cx| cx.emit(crate::workspace::WorkspaceEvent::OpenPath(open.clone()))))
@@ -429,7 +471,7 @@ pub fn worktree_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, removab
         .item(copy_item("Copy path", ws, path.to_string_lossy().into_owned()))
 }
 
-pub fn submodule_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, rel: String, copy: String) -> PopupMenu {
+pub fn submodule_menu(menu: Menu, ws: &Ws, path: std::path::PathBuf, rel: String, copy: String) -> Menu {
     menu.item(item("Open in tab", ws, move |_, _, cx| cx.emit(crate::workspace::WorkspaceEvent::OpenPath(path.clone()))))
         .item(item("Update / initialize", ws, move |this, _, cx| {
             let p = rel.clone();
@@ -439,7 +481,7 @@ pub fn submodule_menu(menu: PopupMenu, ws: &Ws, path: std::path::PathBuf, rel: S
         .item(copy_item("Copy path", ws, copy))
 }
 
-pub fn pr_menu(menu: PopupMenu, ws: &Ws, number: u64, url: String) -> PopupMenu {
+pub fn pr_menu(menu: Menu, ws: &Ws, number: u64, url: String) -> Menu {
     let open = url.clone();
     menu.item(item("Open on GitHub", ws, move |_, _, cx| cx.open_url(&open)))
         .item(item(format!("Check out #{number}"), ws, move |this, _, cx| {
@@ -451,10 +493,10 @@ pub fn pr_menu(menu: PopupMenu, ws: &Ws, number: u64, url: String) -> PopupMenu 
 }
 
 /// Menu for repository tab `index` of `count` tabs (the home tab included).
-pub fn tab_menu(menu: PopupMenu, shell: &WeakEntity<crate::shell::Shell>, index: usize, count: usize) -> PopupMenu {
+pub fn tab_menu(menu: Menu, shell: &WeakEntity<crate::shell::Shell>, index: usize, count: usize) -> Menu {
     let action = |label: &'static str, f: fn(&mut crate::shell::Shell, usize, &mut Window, &mut Context<crate::shell::Shell>)| {
         let shell = shell.clone();
-        PopupMenuItem::new(label).on_click(move |_, window, cx| {
+        MenuItem::new(label, move |window, cx| {
             shell.update(cx, |this, cx| f(this, index, window, cx)).ok();
         })
     };

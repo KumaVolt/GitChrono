@@ -7,6 +7,7 @@ mod cli;
 mod clone;
 mod conflict;
 mod diff;
+mod files;
 mod model;
 mod rebase;
 mod repo;
@@ -21,6 +22,7 @@ pub use conflict::{Chunk, Conflict, ConflictFile, Line, OutputRow, Resolution, S
 pub use cli::{GitError, NoUpstream, PullMode, ResetMode, git};
 pub use clone::{clone_repo, repo_name_from_url};
 pub use diff::{ApplyMode, parse_patch, partial_patch};
+pub use files::{IgnoreChoice, ignore_choices};
 pub use model::*;
 pub use rebase::{RebaseAction, RebaseStep, Rewritable, rewritable};
 pub use repo::Repo;
