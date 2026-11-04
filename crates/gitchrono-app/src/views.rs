@@ -11,6 +11,7 @@ use gpui_kit::component::Icon;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
@@ -163,10 +164,10 @@ fn change_summary(files: &[FileChange]) -> Div {
     let count = |pred: &dyn Fn(FileStatus) -> bool| files.iter().filter(|f| pred(f.status)).count();
     let parts = [
         (count(&|s| matches!(s, Added | Untracked | Copied)), "added", theme::ADD),
-        (count(&|s| matches!(s, Modified | TypeChange)), "modified", theme::ACCENT),
+        (count(&|s| matches!(s, Modified | TypeChange)), "modified", theme::WARN),
         (count(&|s| s == Renamed), "renamed", theme::ACCENT),
         (count(&|s| s == Deleted), "deleted", theme::DEL),
-        (count(&|s| s == Conflicted), "conflicted", theme::WARN),
+        (count(&|s| s == Conflicted), "conflicted", theme::DEL),
     ];
     div().flex().gap_2().text_xs().children(
         parts.into_iter().filter(|(n, ..)| *n > 0).map(|(n, what, color)| div().text_color(c(color)).child(format!("{n} {what}"))),
@@ -192,9 +193,10 @@ fn status_letter(change: &FileChange) -> Div {
     use gitchrono_core::FileStatus::*;
     let color = match change.status {
         Added | Untracked => theme::ADD,
-        Deleted => theme::DEL,
-        Conflicted => theme::WARN,
-        _ => theme::ACCENT,
+        Deleted | Conflicted => theme::DEL,
+        // Yellow as in GitKraken, and as the ✎ counts elsewhere.
+        Modified | TypeChange => theme::WARN,
+        Renamed | Copied => theme::ACCENT,
     };
     div().w(px(16.)).flex_none().text_xs().font_weight(FontWeight::BOLD).text_color(c(color)).child(change.status.letter())
 }
@@ -279,6 +281,16 @@ impl Workspace {
         (header, open)
     }
 
+    /// A stage (`Some(false)`) or unstage (`Some(true)`) in progress.
+    fn staging_now(&self) -> Option<bool> {
+        let busy = self.busy.as_deref()?;
+        if busy.starts_with("Unstaging") {
+            Some(true)
+        } else {
+            busy.starts_with("Staging").then_some(false)
+        }
+    }
+
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let st = &self.status;
         let busy = self.busy.is_some();
@@ -359,7 +371,8 @@ impl Workspace {
                 .child(tool("terminal", ToolIcon::Terminal, "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
             })
             .child(div().flex_1())
-            .when_some(self.busy.clone(), |bar, msg| bar.child(div().text_xs().text_color(c(theme::MUTED)).child(msg)))
+            // Staging shows as a spinner by its button in the changes panel instead.
+            .when_some(self.busy.clone().filter(|_| self.staging_now().is_none()), |bar, msg| bar.child(div().text_xs().text_color(c(theme::MUTED)).child(msg)))
             // Once AI works the button goes; AI settings stay in Settings and the palette.
             .when(!cx.global::<crate::ai::AiSetup>().ready, |bar| {
                 bar.child(
@@ -1514,7 +1527,7 @@ impl Workspace {
                                 .label(if staged { "Unstage" } else { "Stage" })
                                 .xsmall()
                                 .ghost()
-                                .cursor_pointer()
+                                .disabled_if(self.busy.is_some())
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.stage_files(&under, staged, cx);
@@ -1554,7 +1567,7 @@ impl Workspace {
                         .label(if staged { "Unstage" } else { "Stage" })
                         .xsmall()
                         .ghost()
-                        .cursor_pointer()
+                        .disabled_if(self.busy.is_some())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.stage_files(std::slice::from_ref(&change), staged, cx);
@@ -1597,13 +1610,17 @@ impl Workspace {
         let can_commit = !st.staged.is_empty() || self.amend;
         let picked_unstaged = self.picked_files(&unstaged, false);
         let picked_staged = self.picked_files(&staged, true);
+        // Git allows one operation at a time; a spinner by the button shows which.
+        let busy = self.busy.is_some();
+        let staging = self.staging_now();
+        let spinner = |unstaging: bool| (staging == Some(unstaging)).then(|| Spinner::new().xsmall().color(c(theme::MUTED).into()));
         let pick_button = |id: &'static str, picked: Vec<FileChange>, staged: bool, cx: &mut Context<Self>| {
             (picked.len() > 1).then(|| {
                 button(id)
                     .label(format!("{} {}", if staged { "Unstage" } else { "Stage" }, picked.len()))
                     .xsmall()
                     .primary()
-                    .cursor_pointer()
+                    .disabled_if(busy)
                     .on_click(cx.listener(move |this, _, _, cx| this.stage_files(&picked, staged, cx)))
             })
         };
@@ -1640,9 +1657,10 @@ impl Workspace {
                     .pb_1p5()
                     .child(section_header("Unstaged files", unstaged_count))
                     .children(pick_button("stage-picked", picked_unstaged, false, cx))
+                    .children(spinner(false))
                     .child(
                         tinted_button("stage-all", if filtering { "Stage shown" } else { "Stage all changes" }, IconName::ListPlus, theme::ADD, cx)
-                            .disabled_if(unstaged.is_empty())
+                            .disabled_if(unstaged.is_empty() || busy)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if filtering {
                                     this.stage_files(&stage_shown, false, cx);
@@ -1665,9 +1683,10 @@ impl Workspace {
                     .border_color(c(theme::BORDER))
                     .child(section_header("Staged files", staged_count))
                     .children(pick_button("unstage-picked", picked_staged, true, cx))
+                    .children(spinner(true))
                     .child(
                         tinted_button("unstage-all", if filtering { "Unstage shown" } else { "Unstage all changes" }, IconName::ListMinus, theme::DEL, cx)
-                            .disabled_if(staged.is_empty())
+                            .disabled_if(staged.is_empty() || busy)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if filtering {
                                     this.stage_files(&unstage_shown, true, cx);
