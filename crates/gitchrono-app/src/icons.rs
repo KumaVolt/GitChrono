@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use gpui_kit::assets::{IconName, IconNamed};
 use gpui_kit::*;
 
-gpui_kit::assets::icon_assets!(Lucide, [RotateCcw, RotateCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus, ChevronDown, Check]);
+gpui_kit::assets::icon_assets!(Lucide, [RotateCcw, RotateCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus, ChevronDown, Check, Loader]);
 
 const STASH: (&str, &[u8]) = ("icons/gitchrono/stash.svg", include_bytes!("../assets/icons/stash.svg"));
 const STASH_POP: (&str, &[u8]) = ("icons/gitchrono/stash-pop.svg", include_bytes!("../assets/icons/stash-pop.svg"));
@@ -76,6 +76,14 @@ mod tests {
         ToolIcon::Terminal,
         ToolIcon::Ai,
     ];
+
+    #[test]
+    fn the_spinner_icon_is_embedded() {
+        // gpui-component's Spinner draws IconName::Loader; without it, it draws nothing.
+        let path = gpui_kit::component::IconName::Loader.path();
+        let svg = Assets.load(&path).unwrap().unwrap_or_else(|| panic!("{path} is not embedded"));
+        assert!(svg.starts_with(b"<svg"));
+    }
 
     #[test]
     fn every_toolbar_icon_is_embedded() {
