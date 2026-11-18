@@ -24,7 +24,7 @@ env:
 
 jobs:
   screenshots:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       # Always main, also for a tag: the images are committed back there.
       - uses: actions/checkout@v4
