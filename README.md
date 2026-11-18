@@ -55,7 +55,7 @@ Builds run on GitHub Actions:
 
 - **CI** (`.github/workflows/ci.yml`) — tests + app build on macOS, Linux and Windows for every push/PR.
 - **Release** (`.github/workflows/release.yml`) — on a `v*` tag, builds and publishes a GitHub Release:
-  macOS universal `.dmg`, Windows x64 `.zip`, Linux x64/arm64 `.tar.gz`, plus `SHA256SUMS.txt`.
+  macOS universal `.dmg`, Windows x64 installer (`-setup.exe`) and portable `.zip`, Linux x64/arm64 `.tar.gz`, plus `SHA256SUMS.txt`.
   The version comes from the tag; `-suffix` tags are marked pre-release. Run it manually
   (workflow_dispatch) or push a `release/**` branch to get `-dev.N` artifacts without publishing.
 - **Screenshots** (`.github/workflows/screenshots.yml`) — on a `v*` tag (or manually), takes the

@@ -3,7 +3,7 @@
 //! own `git`, `ssh` and `ssh-keygen` so the result matches the terminal.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use anyhow::{Result, bail};
 
@@ -159,7 +159,7 @@ pub fn ssh_keys(dir: &Path) -> Vec<SshKey> {
     pubs.sort();
     pubs.into_iter()
         .filter_map(|public| {
-            let out = Command::new("ssh-keygen").arg("-lf").arg(&public).stdin(Stdio::null()).output().ok()?;
+            let out = crate::gitbin::quiet_command("ssh-keygen").arg("-lf").arg(&public).stdin(Stdio::null()).output().ok()?;
             if !out.status.success() {
                 return None;
             }
@@ -211,7 +211,7 @@ pub fn generate_ssh_key(path: &Path, comment: &str, passphrase: &str) -> Result<
             std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
         }
     }
-    let out = Command::new("ssh-keygen")
+    let out = crate::gitbin::quiet_command("ssh-keygen")
         .args(["-q", "-t", "ed25519", "-C", comment, "-N", passphrase, "-f"])
         .arg(path)
         .stdin(Stdio::null())
@@ -226,7 +226,7 @@ pub fn generate_ssh_key(path: &Path, comment: &str, passphrase: &str) -> Result<
 /// `ssh -T git@host`. Hosts answer with a greeting and a non-zero exit even
 /// when the key works, so success is judged by the text.
 pub fn test_ssh(host: &str) -> Result<String> {
-    let out = Command::new("ssh")
+    let out = crate::gitbin::quiet_command("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"])
         .arg(format!("git@{host}"))
         .stdin(Stdio::null())

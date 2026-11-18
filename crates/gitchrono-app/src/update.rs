@@ -164,7 +164,7 @@ pub fn install_at(download: &Path, exe: &Path) -> Result<Installed> {
     }
 
     // Windows' tar reads zip files too.
-    run(Command::new("tar").arg("-xf").arg(download).arg("-C").arg(&work))?;
+    run(&mut gitchrono_core::gitbin::quiet_command("tar").arg("-xf").arg(download).arg("-C").arg(&work))?;
     install_files(&work, &exe)?;
     Ok(Installed(exe))
 }

@@ -4,7 +4,7 @@
 
 Key facts:
 
-- Platforms: macOS 11+ (one universal build for Apple Silicon and Intel, `.dmg`), Windows 10/11 64-bit (`.zip`), Linux x86_64 and ARM64 (`.tar.gz`, X11 or Wayland, needs Vulkan drivers).
+- Platforms: macOS 11+ (one universal build for Apple Silicon and Intel, `.dmg`), Windows 10/11 64-bit (`-setup.exe` installer, or a portable `.zip`), Linux x86_64 and ARM64 (`.tar.gz`, X11 or Wayland, needs Vulkan drivers).
 - Requires `git` 2.40 or newer on `PATH`. Reads history, refs and trees in-process via gitoxide; everything that changes the repository (commit, push, rebase, stash, …) runs through the user's own `git`, so hooks, SSH keys, credential helpers and signing behave exactly like the terminal.
 - Performance: the 85,767 commits of git.git load in about 2.8 s and the full graph lays out in about 80 ms (Apple Silicon); under 1% CPU in the background.
 - Features: commit graph with branches, tags and stashes; staging of single lines, blocks or many files; checkout, branch, tag, merge, rebase (reorder, squash, reword), cherry-pick, revert and reset from a right-click menu; side-by-side conflict resolution; file history and blame; undo (⌘Z) for commits, resets, rebases, checkouts, branches and tags; a tab per repository and project folders; built-in terminal; command palette (⌘P) and history search (⌘F); settings for git identity, signing and SSH keys; self-updating with checksum verification.
