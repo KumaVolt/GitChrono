@@ -46,7 +46,8 @@ try { if (localStorage.getItem('consent') === 'granted') window.loadAnalytics();
       .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
       .then(release => {
         for (const card of cards) {
-          const asset = release.assets.find(a => a.name.endsWith(card.dataset.match));
+          // data-match may list several endings, preferred first.
+          const asset = card.dataset.match.split(' ').map(end => release.assets.find(a => a.name.endsWith(end))).find(Boolean);
           if (!asset) continue;
           card.href = asset.browser_download_url;
           const size = (asset.size / 1048576).toFixed(1) + ' MB';

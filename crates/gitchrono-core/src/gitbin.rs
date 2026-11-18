@@ -22,12 +22,19 @@ static RESOLVED: RwLock<Option<PathBuf>> = RwLock::new(None);
 /// A `Command` for the resolved git (plain `git` before `check` has run).
 pub fn git_command() -> Command {
     let path = RESOLVED.read().ok().and_then(|p| p.clone());
+    quiet_command(path.as_deref().unwrap_or(Path::new("git")))
+}
+
+/// `Command::new` for a helper program run in the background. On Windows
+/// GitChrono has no console, so each console program would otherwise open
+/// a window of its own.
+pub fn quiet_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[cfg_attr(not(windows), allow(unused_mut))]
-    let mut cmd = Command::new(path.as_deref().unwrap_or(Path::new("git")));
+    let mut cmd = Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flashing up
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     cmd
 }
@@ -77,7 +84,7 @@ fn bundled_git() -> Option<PathBuf> {
 fn version_of(path: &Path) -> Option<String> {
     // macOS without the Command Line Tools: /usr/bin/git is a stub that
     // fails here (and would open the installer), so it counts as missing.
-    let out = Command::new(path).arg("--version").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let out = quiet_command(path).arg("--version").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|v| v.starts_with("git version"))
 }
 

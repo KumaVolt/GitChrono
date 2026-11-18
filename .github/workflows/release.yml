@@ -27,7 +27,7 @@ jobs:
       matrix:
         include:
           - name: macos-universal
-            os: macos-14
+            os: macos-15
           - name: windows-x86_64
             os: windows-2022
             target: x86_64-pc-windows-msvc
@@ -93,7 +93,14 @@ jobs:
           if ((Get-FileHash mingit.zip -Algorithm SHA256).Hash.ToLower() -ne $sha) { throw "MinGit checksum mismatch" }
           Expand-Archive mingit.zip -DestinationPath "$stage/mingit"
           & "$stage/mingit/cmd/git.exe" --version
+          # The zip is what in-app updates download (and a portable copy);
+          # the installer is what the website offers.
           Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE) { throw "couldn't install Inno Setup" } }
+          & $iscc /Q "/DVersion=${{ steps.version.outputs.version }}" "/DSource=$((Resolve-Path $stage).Path)" "/DOutput=$((Resolve-Path dist).Path)" packaging\windows\gitchrono.iss
+          if ($LASTEXITCODE) { throw "the installer didn't build" }
+          Get-Item dist/*-setup.exe
           Remove-Item -Recurse $stage
 
       - name: Build (Linux)
@@ -112,6 +119,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/*.exe
             dist/*.tar.gz
           if-no-files-found: error
 

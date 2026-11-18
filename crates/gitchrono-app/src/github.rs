@@ -1,7 +1,7 @@
 //! Pull requests via the GitHub CLI (`gh`), when it's installed and signed in.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use anyhow::{Result, bail};
 use serde::Deserialize;
@@ -26,7 +26,7 @@ pub struct Author {
 }
 
 fn gh(root: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("gh").args(args).current_dir(root).stdin(Stdio::null()).env("GH_PROMPT_DISABLED", "1").output()?;
+    let output = gitchrono_core::gitbin::quiet_command("gh").args(args).current_dir(root).stdin(Stdio::null()).env("GH_PROMPT_DISABLED", "1").output()?;
     if !output.status.success() {
         bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
     }
