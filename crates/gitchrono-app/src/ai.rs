@@ -33,7 +33,8 @@ impl Global for AiSetup {}
 
 impl AiSetup {
     fn new(config: Option<AiConfig>) -> Self {
-        let ready = config.as_ref().is_some_and(|c| !c.needs_key() || c.key().is_some());
+        // Doesn't read the keychain: that can make macOS ask for permission.
+        let ready = config.as_ref().is_some_and(|c| !c.needs_key() || c.has_key());
         Self { config, ready }
     }
 }
@@ -63,7 +64,7 @@ impl Workspace {
             model,
             base_url,
             key,
-            has_stored_key: gitchrono_ai::load_key(&config.provider).is_some(),
+            has_stored_key: gitchrono_ai::key_saved(&config.provider).unwrap_or(self.ai.is_some()),
             error: None,
         });
         self.refresh_key_placeholder(window, cx);
@@ -90,7 +91,7 @@ impl Workspace {
         let Some(s) = &mut self.ai_settings else { return };
         let preset = &PRESETS[index];
         s.preset = index;
-        s.has_stored_key = gitchrono_ai::load_key(preset.id).is_some();
+        s.has_stored_key = gitchrono_ai::key_saved(preset.id).unwrap_or(false);
         s.error = None;
         s.model.update(cx, |i, cx| i.set_value(preset.model, window, cx));
         s.base_url.update(cx, |i, cx| i.set_value(preset.base_url, window, cx));

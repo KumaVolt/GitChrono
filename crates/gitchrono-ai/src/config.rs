@@ -1,6 +1,8 @@
 //! Provider settings (a JSON file in the config dir) and API keys (the OS keychain).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
@@ -137,29 +139,108 @@ impl AiConfig {
     }
 
     /// The API key: keychain first, then the preset's environment variable.
+    /// Reads the keychain, so only call it when the key is about to be used.
     pub fn key(&self) -> Option<String> {
-        load_key(&self.provider).or_else(|| {
-            let var = self.preset()?.env_key;
-            std::env::var(var).ok().filter(|k| !var.is_empty() && !k.is_empty())
-        })
+        load_key(&self.provider).or_else(|| self.env_key())
+    }
+
+    fn env_key(&self) -> Option<String> {
+        let var = self.preset()?.env_key;
+        std::env::var(var).ok().filter(|k| !var.is_empty() && !k.is_empty())
+    }
+
+    /// Whether a key is available, without reading the keychain. Unknown
+    /// (set up by a version that kept no list) counts as yes; the request
+    /// then finds out.
+    pub fn has_key(&self) -> bool {
+        self.env_key().is_some() || key_saved(&self.provider).unwrap_or(true)
     }
 }
+
+// Reading the keychain makes macOS ask the user whenever it doesn't
+// recognise the app, which for an ad-hoc signed build is after every update.
+// So keys are read only to be used, once per run, and which providers have
+// one is kept in a plain list next to ai.json.
+
+static KEYS: LazyLock<Mutex<HashMap<String, Option<String>>>> = LazyLock::new(Default::default);
 
 fn entry(provider: &str) -> Result<keyring::Entry> {
     Ok(keyring::Entry::new(KEYCHAIN_SERVICE, &format!("ai-{provider}"))?)
 }
 
 pub fn load_key(provider: &str) -> Option<String> {
-    entry(provider).ok()?.get_password().ok().filter(|k| !k.is_empty())
+    if let Some(known) = KEYS.lock().ok().and_then(|k| k.get(provider).cloned()) {
+        return known;
+    }
+    let key = entry(provider).ok()?.get_password().ok().filter(|k| !k.is_empty());
+    remember(provider, key.clone());
+    key
 }
 
 pub fn save_key(provider: &str, key: &str) -> Result<()> {
-    entry(provider)?.set_password(key).context("saving the API key to the keychain")
+    entry(provider)?.set_password(key).context("saving the API key to the keychain")?;
+    remember(provider, Some(key.to_string()));
+    Ok(())
 }
 
 pub fn delete_key(provider: &str) -> Result<()> {
     match entry(provider)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(keyring::Error::NoEntry) => {
+            remember(provider, None);
+            Ok(())
+        }
         Err(e) => Err(e.into()),
+    }
+}
+
+/// Whether the keychain holds a key for `provider`, from the saved list;
+/// `None` when there's no list yet.
+pub fn key_saved(provider: &str) -> Option<bool> {
+    let text = std::fs::read_to_string(saved_list_path()?).ok()?;
+    let list: Vec<String> = serde_json::from_str(&text).ok()?;
+    Some(list.iter().any(|p| p == provider))
+}
+
+fn remember(provider: &str, key: Option<String>) {
+    let saved = key.is_some();
+    if let Ok(mut keys) = KEYS.lock() {
+        keys.insert(provider.to_string(), key);
+    }
+    let Some(path) = saved_list_path() else { return };
+    let mut list: Vec<String> = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    if update_list(&mut list, provider, saved) {
+        let _ = std::fs::create_dir_all(path.parent().unwrap());
+        let _ = std::fs::write(&path, serde_json::to_string(&list).unwrap_or_default());
+    }
+}
+
+/// Adds or removes `provider`; whether the list changed.
+fn update_list(list: &mut Vec<String>, provider: &str, saved: bool) -> bool {
+    let had = list.iter().any(|p| p == provider);
+    match (had, saved) {
+        (false, true) => list.push(provider.to_string()),
+        (true, false) => list.retain(|p| p != provider),
+        _ => return false,
+    }
+    true
+}
+
+fn saved_list_path() -> Option<PathBuf> {
+    Some(dirs::config_dir()?.join("gitchrono").join("ai-keys.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_the_list_of_saved_keys() {
+        let mut list = vec![];
+        assert!(update_list(&mut list, "mistral", true));
+        assert!(!update_list(&mut list, "mistral", true), "already there");
+        assert!(update_list(&mut list, "openai", true));
+        assert!(update_list(&mut list, "mistral", false));
+        assert!(!update_list(&mut list, "gemini", false), "never there");
+        assert_eq!(list, ["openai"]);
     }
 }

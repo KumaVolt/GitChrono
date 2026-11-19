@@ -8,6 +8,6 @@ mod config;
 mod prompts;
 mod provider;
 
-pub use config::{AiConfig, Preset, Protocol, PRESETS, delete_key, load_key, save_key};
+pub use config::{AiConfig, Preset, Protocol, PRESETS, delete_key, key_saved, load_key, save_key};
 pub use prompts::{CommitMessage, branch_name, commit_message, explain_commit, parse_commit_message, sanitize_ref_name, stash_message};
 pub use provider::{Completion, Request, complete};
