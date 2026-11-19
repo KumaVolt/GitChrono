@@ -104,11 +104,13 @@ jobs:
           $gitBin = Get-ChildItem "$stage/mingit" -Directory | ForEach-Object { Join-Path $_.FullName bin } | Where-Object { Test-Path (Join-Path $_ git.exe) } | Select-Object -First 1
           if (-not $gitBin) { throw "MinGit's bin folder not found" }
           Copy-Item (Get-ChildItem git-lfs -Recurse -Filter git-lfs.exe | Select-Object -First 1).FullName $gitBin
-          Copy-Item (Get-ChildItem git-lfs -Recurse -Filter LICENSE.md | Select-Object -First 1).FullName "$stage/mingit/git-lfs-LICENSE.md"
+          # The zip leaves its license out; take it from the same tag.
+          Invoke-WebRequest "https://raw.githubusercontent.com/git-lfs/git-lfs/v3.8.1/LICENSE.md" -OutFile "$stage/mingit/git-lfs-LICENSE.md"
           # Its filters go in the bundled git's own system config, as Git for Windows does.
           & "$stage/mingit/cmd/git.exe" lfs install --system --skip-repo
           if ($LASTEXITCODE) { throw "git lfs install failed" }
           & "$stage/mingit/cmd/git.exe" lfs version
+          if ($LASTEXITCODE) { throw "the bundled git can't find git-lfs" }
           # The zip is what in-app updates download (and a portable copy);
           # the installer is what the website offers.
           Compress-Archive -Path $stage -DestinationPath "$stage.zip"
