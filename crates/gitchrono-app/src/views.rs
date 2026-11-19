@@ -237,20 +237,17 @@ fn branch_badge(name: &str) -> Div {
         .child(div().truncate().child(name.to_string()))
 }
 
-/// A staging list's title with its file count in a pill beside it.
-fn section_header(title: &str, count: impl std::fmt::Display) -> Div {
-    div()
-        .flex_1()
-        .px_3()
-        .flex()
-        .items_center()
-        .gap_1p5()
-        .text_xs()
-        .font_weight(FontWeight::BOLD)
-        .text_color(c(theme::MUTED))
-        .child(title.to_uppercase())
-        .child(div().px_1p5().rounded_full().bg(c(theme::BORDER)).text_color(c(theme::TEXT)).child(count.to_string()))
+/// Dragged by the bar between the unstaged and staged lists.
+pub struct StagingResize;
+
+impl Render for StagingResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
 }
+
+/// The smallest share either staging list keeps when the bar is dragged.
+const MIN_STAGING_SHARE: f32 = 0.12;
 
 impl Workspace {
     /// A sidebar section heading that collapses the section. While the sidebar
@@ -279,6 +276,29 @@ impl Workspace {
             .child(div().text_color(c(theme::ACCENT)).child(count.to_string()))
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_section(key, cx)));
         (header, open)
+    }
+
+    /// A staging list's title with its file count in a pill beside it;
+    /// clicking it folds the list away (saved per repository).
+    fn staging_header(&self, key: &'static str, title: &str, count: impl std::fmt::Display, open: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        div()
+            .id(key)
+            .flex_1()
+            .min_w_0()
+            .h(px(24.))
+            .pl_2()
+            .flex()
+            .items_center()
+            .gap_1p5()
+            .text_xs()
+            .font_weight(FontWeight::BOLD)
+            .text_color(c(theme::MUTED))
+            .cursor_pointer()
+            .hover(|d| d.text_color(c(theme::TEXT)))
+            .child(div().w(px(12.)).flex_none().text_sm().text_color(c(theme::FAINT)).child(if open { "▾" } else { "▸" }))
+            .child(title.to_uppercase())
+            .child(div().px_1p5().rounded_full().bg(c(theme::BORDER)).text_color(c(theme::TEXT)).child(count.to_string()))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_section(key, cx)))
     }
 
     /// A stage (`Some(false)`) or unstage (`Some(true)`) in progress.
@@ -363,12 +383,13 @@ impl Workspace {
                         .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
                 )
                 .child(tool("branch", ToolIcon::Branch, "Branch".into()).on_click(cx.listener(|this, _, window, cx| this.prompt_create_branch(window, cx))))
-                .child(tool("stash", ToolIcon::Stash, "Stash".into()).disabled_if(busy || st.is_clean()).on_click(cx.listener(|this, _, window, cx| this.prompt_stash(window, cx))))
+                .child(tool("stash", ToolIcon::Stash, "Stash".into()).disabled_if(busy || st.is_clean()).on_click(cx.listener(|this, _, _, cx| this.stash_now(cx))))
                 .child(tool("pop", ToolIcon::Pop, "Pop".into()).disabled_if(busy || self.snap.refs.stashes.is_empty()).on_click(cx.listener(
                     |this, _, _, cx| this.apply_stash(0, true, cx),
                 )))
                 .child(div().mx_1().w_px().h(px(32.)).bg(c(theme::BORDER)))
                 .child(tool("terminal", ToolIcon::Terminal, "Terminal".into()).on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))))
+                .children(self.lfs_button(cx))
             })
             .child(div().flex_1())
             // Staging shows as a spinner by its button in the changes panel instead.
@@ -483,25 +504,7 @@ impl Workspace {
                     cx.notify();
                 }))))
             })
-            .when_some(self.error.clone(), |d, err| {
-                d.child(
-                    div()
-                        .id("error")
-                        .px_3()
-                        .py_2()
-                        .flex()
-                        .gap_2()
-                        .bg(c(theme::DEL_BG))
-                        .border_b_1()
-                        .border_color(c(theme::DEL))
-                        .text_xs()
-                        .child(div().flex_1().child(err))
-                        .child(button("dismiss").label("Dismiss").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
-                            this.error = None;
-                            cx.notify();
-                        }))),
-                )
-            })
+            .when_some(self.error.clone(), |d, err| d.child(self.render_error(err, cx)))
             .when(op != Operation::None, |d| {
                 let conflicts = self.status.conflicted.len();
                 d.child(
@@ -744,6 +747,51 @@ impl Workspace {
     }
 
     /// The ▾ beside Pull: picks what clicking Pull does (saved app-wide).
+    /// "LFS", as in GitKraken: only for repositories that use Git LFS, with
+    /// its commands in a menu. Marked when something needs doing.
+    fn lfs_button(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        use gitchrono_core::lfs::LfsState;
+        let state = self.lfs.clone();
+        let (mark, tip) = match &state {
+            LfsState::NotUsed => return None,
+            LfsState::Missing => (Some(("!".to_string(), theme::WARN)), "Git LFS isn't installed".to_string()),
+            LfsState::NotSetUp => (Some(("!".to_string(), theme::WARN)), "Git LFS isn't set up for this repository".to_string()),
+            LfsState::Ready { not_downloaded: 0 } => (None, "Git LFS".to_string()),
+            LfsState::Ready { not_downloaded: n } => (Some((format!("↓{n}"), theme::WARN)), format!("{n} LFS file{} not downloaded yet", if *n == 1 { "" } else { "s" })),
+        };
+        let ws = cx.entity().downgrade();
+        let busy = self.busy.is_some();
+        Some(
+            counted_tool_button("lfs", ToolIcon::Lfs, "LFS".into(), mark)
+                .tooltip(tip)
+                .dropdown_menu(move |menu, _, _| {
+                    let act = |label: String, f: fn(&mut Workspace, &mut Window, &mut Context<Workspace>)| {
+                        let ws = ws.clone();
+                        PopupMenuItem::new(label).disabled(busy).on_click(move |_, window, cx| {
+                            ws.update(cx, |this, cx| f(this, window, cx)).ok();
+                        })
+                    };
+                    match &state {
+                        LfsState::NotUsed => menu,
+                        LfsState::Missing => menu
+                            .label("Git LFS isn't installed, so this repository's large files are placeholders")
+                            .item(PopupMenuItem::new("Get Git LFS…").on_click(|_, _, cx| cx.open_url("https://git-lfs.com")))
+                            .item(act("I've installed it".into(), |this, _, cx| this.lfs_recheck(cx))),
+                        LfsState::NotSetUp => menu
+                            .label("This repository uses Git LFS for large files. Set it up to download them")
+                            .item(act("Set up Git LFS".into(), |this, _, cx| this.lfs_setup(cx))),
+                        LfsState::Ready { not_downloaded } => menu
+                            .item(act(
+                                if *not_downloaded > 0 { format!("Download {not_downloaded} missing file{}", if *not_downloaded == 1 { "" } else { "s" }) } else { "Download files".into() },
+                                |this, _, cx| this.lfs_download(cx),
+                            ))
+                            .separator()
+                            .item(act("Free up space (prune)…".into(), |this, window, cx| this.lfs_prune(window, cx))),
+                    }
+                }),
+        )
+    }
+
     fn pull_menu_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ws = cx.entity().downgrade();
         let repo = self.repo.clone();
@@ -1584,9 +1632,9 @@ impl Workspace {
                         this.show_workdir_diff(file, staged, cx);
                     }
                 }))
-                .right_click_menu(move |_, _| {
+                .right_click_menu(move |_, cx| {
                     if menu_files.is_empty() {
-                        menus::file_menu(Menu::new(), &ws, &for_menu, staged)
+                        menus::file_menu(Menu::new(), &ws, &for_menu, staged, cx)
                     } else {
                         menus::files_menu(Menu::new(), &ws, &menu_files, staged)
                     }
@@ -1625,6 +1673,9 @@ impl Workspace {
             })
         };
         let changes = st.change_count();
+        // A folded list opens again while filtering, so matches never hide.
+        let unstaged_open = filtering || !self.collapsed_sections.contains("staging-unstaged");
+        let staged_open = filtering || !self.collapsed_sections.contains("staging-staged");
         div()
             .flex()
             .flex_col()
@@ -1649,54 +1700,107 @@ impl Workspace {
             .child(div().flex_none().px_3().pt_2().child(Input::new(&self.file_filter).small().cleanable(true)))
             .child(
                 div()
+                    .id("staging-lists")
+                    .flex_1()
+                    .min_h_0()
                     .flex()
-                    .items_center()
-                    .gap_1()
-                    .pr_2()
-                    .pt_2p5()
-                    .pb_1p5()
-                    .child(section_header("Unstaged files", unstaged_count))
-                    .children(pick_button("stage-picked", picked_unstaged, false, cx))
-                    .children(spinner(false))
+                    .flex_col()
+                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<StagingResize>, _, cx| {
+                        let height = f32::from(ev.bounds.size.height);
+                        if height > 0. {
+                            let share = f32::from(ev.event.position.y - ev.bounds.top()) / height;
+                            this.staging_split = Some(share.clamp(MIN_STAGING_SHARE, 1. - MIN_STAGING_SHARE));
+                            cx.notify();
+                        }
+                    }))
+                    .on_drop(cx.listener(|this, _: &StagingResize, _, _| crate::projects::save_staging_split(this.staging_split)))
                     .child(
-                        tinted_button("stage-all", if filtering { "Stage shown" } else { "Stage all changes" }, IconName::ListPlus, theme::ADD, cx)
-                            .disabled_if(unstaged.is_empty() || busy)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if filtering {
-                                    this.stage_files(&stage_shown, false, cx);
-                                } else {
-                                    this.run("Staging", Change::Status, cx, |r| r.stage_all());
-                                }
-                            })),
-                    ),
-            )
-            .child(self.file_list("unstaged", &unstaged, false, cx))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .pr_2()
-                    .pt_2p5()
-                    .pb_1p5()
-                    .border_t_1()
-                    .border_color(c(theme::BORDER))
-                    .child(section_header("Staged files", staged_count))
-                    .children(pick_button("unstage-picked", picked_staged, true, cx))
-                    .children(spinner(true))
+                        div()
+                            .flex()
+                            .flex_col()
+                            .min_h_0()
+                            // Open lists share the height (as dragged); a folded one keeps just its header.
+                            .map(|d| match (unstaged_open, staged_open, self.staging_split) {
+                                (true, true, Some(share)) => d.flex_none().h(relative(share)),
+                                (true, _, _) => d.flex_1(),
+                                (false, _, _) => d.flex_none(),
+                            })
+                            .child(div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .pr_2()
+                                    .py_1()
+                                    .child(self.staging_header("staging-unstaged", "Unstaged files", unstaged_count, unstaged_open, cx))
+                                    .children(pick_button("stage-picked", picked_unstaged, false, cx))
+                                    .children(spinner(false))
+                                    .child(
+                                        tinted_button("stage-all", if filtering { "Stage shown" } else { "Stage all changes" }, IconName::ListPlus, theme::ADD, cx)
+                                            .disabled_if(unstaged.is_empty() || busy)
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                if filtering {
+                                                    this.stage_files(&stage_shown, false, cx);
+                                                } else {
+                                                    this.run("Staging", Change::Status, cx, |r| r.stage_all());
+                                                }
+                                            })),
+                                    ))
+                            .when(unstaged_open, |d| d.child(self.file_list("unstaged", &unstaged, false, cx))),
+                    )
+                    .when(unstaged_open && staged_open, |d| {
+                        // Drag to set the lists' heights; double-click splits them evenly again.
+                        d.child(
+                            div()
+                                .id("staging-resize")
+                                .flex_none()
+                                .h(px(7.))
+                                .flex()
+                                .items_center()
+                                .cursor(CursorStyle::ResizeUpDown)
+                                .group("staging-resize")
+                                .child(div().w_full().h(px(1.)).bg(c(theme::BORDER)).group_hover("staging-resize", |d| d.h(px(2.)).bg(c(theme::ACCENT))))
+                                .on_drag(StagingResize, |_, _, _, cx| cx.new(|_| StagingResize))
+                                .on_click(cx.listener(|this, ev: &ClickEvent, _, cx| {
+                                    if ev.click_count() >= 2 {
+                                        this.staging_split = None;
+                                        crate::projects::save_staging_split(None);
+                                        cx.notify();
+                                    }
+                                })),
+                        )
+                    })
                     .child(
-                        tinted_button("unstage-all", if filtering { "Unstage shown" } else { "Unstage all changes" }, IconName::ListMinus, theme::DEL, cx)
-                            .disabled_if(staged.is_empty() || busy)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if filtering {
-                                    this.stage_files(&unstage_shown, true, cx);
-                                } else {
-                                    this.run("Unstaging", Change::Status, cx, |r| r.unstage_all());
-                                }
-                            })),
-                    ),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .min_h_0()
+                            .map(|d| if staged_open { d.flex_1() } else { d.flex_none() })
+                            .when(!(unstaged_open && staged_open), |d| d.border_t_1().border_color(c(theme::BORDER)))
+                            .child(div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .pr_2()
+                                    .py_1()
+                                    .child(self.staging_header("staging-staged", "Staged files", staged_count, staged_open, cx))
+                                    .children(pick_button("unstage-picked", picked_staged, true, cx))
+                                    .children(spinner(true))
+                                    .child(
+                                        tinted_button("unstage-all", if filtering { "Unstage shown" } else { "Unstage all changes" }, IconName::ListMinus, theme::DEL, cx)
+                                            .disabled_if(staged.is_empty() || busy)
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                if filtering {
+                                                    this.stage_files(&unstage_shown, true, cx);
+                                                } else {
+                                                    this.run("Unstaging", Change::Status, cx, |r| r.unstage_all());
+                                                }
+                                            })),
+                                    ))
+                            .when(staged_open, |d| d.child(self.file_list("staged", &staged, true, cx))),
+                    )
+                    // Both folded: the commit box stays at the bottom.
+                    .when(!unstaged_open && !staged_open, |d| d.child(div().flex_1())),
             )
-            .child(self.file_list("staged", &staged, true, cx))
             .child(
                 div()
                     .flex_none()
@@ -1960,7 +2064,74 @@ impl Workspace {
                     .child(button("welcome-clone").label("Clone…").on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::CloneRequested))))
                     .child(button("welcome-init").label("New Repository…").on_click(cx.listener(|this, _, _, cx| this.prompt_init(cx)))),
             )
-            .when_some(self.error.clone(), |d, e| d.child(div().text_sm().text_color(c(theme::DEL)).child(e)))
+            .when_some(self.error.clone(), |d, e| d.child(div().text_sm().text_color(c(theme::DEL)).child(e.message)))
+    }
+
+    /// A failure in plain words: what happened, a fix when there is one,
+    /// and git's own output only behind "Details".
+    fn render_error(&self, err: gitchrono_core::explain::Explained, cx: &mut Context<Self>) -> impl IntoElement {
+        use gitchrono_core::explain::Fix;
+        let hue: Hsla = c(if err.fix.is_some() { theme::ACCENT } else { theme::DEL }).into();
+        // Outlined for the fix; plain text in the same color for the rest.
+        let tint = |outlined: bool| {
+            let variant = ButtonCustomVariant::new(cx).foreground(hue).hover(hue.opacity(0.2)).active(hue.opacity(0.3));
+            if outlined { variant.color(hue) } else { variant.color(hue.opacity(0.)) }
+        };
+        let fix = err.fix.map(|fix| {
+            let label = match fix {
+                Fix::StashAndPull => "Stash and pull",
+                Fix::Stash => "Stash changes",
+                Fix::PullMerge => "Pull with merge",
+            };
+            button("error-fix").label(label).xsmall().outline().custom(tint(true)).cursor_pointer().disabled_if(self.busy.is_some()).on_click(cx.listener(move |this, _, _, cx| this.apply_fix(fix, cx)))
+        });
+        // Something the app can fix is a choice, not a failure: the blue of
+        // the other notices instead of red. The buttons take the bar's color.
+        let (bg, border) = if err.fix.is_some() { (c(theme::ACCENT).opacity(0.12), c(theme::ACCENT)) } else { (c(theme::DEL_BG), c(theme::DEL)) };
+        div()
+            .id("error")
+            .px_3()
+            .py_2()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .bg(bg)
+            .border_b_1()
+            .border_color(border)
+            .text_xs()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().text_sm().text_color(c(theme::TEXT)).child(err.message.clone()))
+                    .children(fix)
+                    .when(err.details.is_some(), |d| {
+                        d.child(button("error-details").label(if self.error_details { "Hide details" } else { "Details" }).xsmall().custom(tint(false)).cursor_pointer().on_click(cx.listener(|this, _, _, cx| {
+                            this.error_details = !this.error_details;
+                            cx.notify();
+                        })))
+                    })
+                    .child(button("dismiss").label(if err.fix.is_some() { "Not now" } else { "Dismiss" }).xsmall().custom(tint(false)).cursor_pointer().on_click(cx.listener(|this, _, _, cx| {
+                        this.error = None;
+                        cx.notify();
+                    }))),
+            )
+            .when_some(err.details.filter(|_| self.error_details), |d, details| {
+                d.child(
+                    div()
+                        .id("error-raw")
+                        .max_h(px(160.))
+                        .overflow_y_scroll()
+                        .p_2()
+                        .rounded_sm()
+                        .bg(c(theme::BG))
+                        .font_family("monospace")
+                        .text_color(c(theme::MUTED))
+                        .whitespace_normal()
+                        .children(details.lines().map(|l| div().child(if l.is_empty() { " ".to_string() } else { l.to_string() })).collect::<Vec<_>>()),
+                )
+            })
     }
 }
 

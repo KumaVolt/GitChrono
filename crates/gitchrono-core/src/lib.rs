@@ -7,6 +7,8 @@ mod cli;
 mod clone;
 mod conflict;
 mod diff;
+pub mod explain;
+pub mod lfs;
 mod files;
 mod model;
 mod rebase;

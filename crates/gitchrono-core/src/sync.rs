@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::cli::{GitError, NoUpstream, PullMode};
+use crate::cli::{NoUpstream, PullMode};
 use crate::model::Operation;
 use crate::repo::Repo;
 
@@ -29,12 +29,13 @@ pub enum SyncOutcome {
     Failed(String),
 }
 
-/// The line of a failure worth showing in a list.
+/// A failure in a few words for a list: the friendly explanation's first
+/// sentence, without its "Couldn't pull:" opening.
 fn reason(e: &anyhow::Error) -> String {
-    let Some(git) = e.downcast_ref::<GitError>() else { return e.to_string() };
-    let lines = || git.stderr.lines().map(str::trim).filter(|l| !l.is_empty());
-    let line = lines().find_map(|l| l.strip_prefix("fatal: ").or(l.strip_prefix("error: "))).or(lines().next());
-    line.unwrap_or("git failed").to_string()
+    let message = crate::explain::explain(e).message;
+    let rest = message.split_once(": ").filter(|(head, _)| head.starts_with("Couldn't")).map_or(message.as_str(), |(_, rest)| rest);
+    let first = rest.split_inclusive(". ").next().unwrap_or(rest).trim_end();
+    first.trim_end_matches('.').to_string()
 }
 
 fn pull(repo: &Repo, mode: PullMode) -> SyncOutcome {

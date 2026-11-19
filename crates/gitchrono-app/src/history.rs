@@ -41,7 +41,7 @@ impl Workspace {
                         this.file_history = Some(FileHistory { path, commits, selected: None });
                         this.select_history(0, cx);
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })
@@ -78,7 +78,7 @@ impl Workspace {
                         this.diff = None;
                         this.blame = Some(BlameView { path, lines: Arc::new(lines) });
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })

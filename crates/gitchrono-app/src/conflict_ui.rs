@@ -112,7 +112,7 @@ impl Workspace {
                         this.blame = None;
                         this.conflict = Some(ConflictView::new(file, ours, theirs));
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })

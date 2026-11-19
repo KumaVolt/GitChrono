@@ -64,7 +64,31 @@ pub fn parse_patch(path: &str, patch: &str) -> FileDiff {
         };
         hunk.lines.push(DiffLine { kind, content: content.to_string(), old_no: o, new_no: n, no_eol: false });
     }
+    lfs_pointers(&mut diff);
     diff
+}
+
+/// An LFS file's diff is of its placeholder (pointer) text: replace that
+/// with the sizes before and after.
+fn lfs_pointers(diff: &mut FileDiff) {
+    if diff.hunks.is_empty() {
+        return;
+    }
+    let side = |keep: DiffLineKind| {
+        let lines: Vec<&str> = diff.hunks.iter().flat_map(|h| &h.lines).filter(|l| l.kind == keep || l.kind == DiffLineKind::Context).map(|l| l.content.as_str()).collect();
+        (!lines.is_empty()).then(|| crate::lfs::parse_pointer(lines.iter().copied()))
+    };
+    let (old, new) = (side(DiffLineKind::Del), side(DiffLineKind::Add));
+    // A side that exists must be a pointer (a file moving into LFS shows its
+    // old text on one side: that's a normal diff).
+    let is_pointer = |s: &Option<Option<crate::lfs::Pointer>>| s.as_ref().is_none_or(Option::is_some);
+    if (old.flatten().is_some() || new.flatten().is_some()) && is_pointer(&old) && is_pointer(&new) {
+        diff.lfs = Some(LfsDiff { old_size: old.flatten().map(|p| p.size), new_size: new.flatten().map(|p| p.size) });
+        diff.hunks.clear();
+        // Lines of placeholder text say nothing about the file.
+        diff.additions = 0;
+        diff.deletions = 0;
+    }
 }
 
 /// `-12,5 +14,7 @@ fn x()` -> (12, 14)

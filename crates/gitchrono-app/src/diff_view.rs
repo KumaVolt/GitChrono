@@ -17,7 +17,9 @@ impl Workspace {
         let partial = view.source.partial();
         let selected = view.selected.len();
         let mut rows: Vec<AnyElement> = Vec::new();
-        if view.diff.binary {
+        if let Some(lfs) = view.diff.lfs {
+            rows.push(lfs_card(lfs).into_any_element());
+        } else if view.diff.binary {
             rows.push(div().p_4().text_color(c(theme::MUTED)).child("Binary file").into_any_element());
         }
 
@@ -136,18 +138,21 @@ impl Workspace {
                     cx.notify();
                 })))
             })
-            .child(
-                button("diff-layout")
-                    .label(if self.diff_split { "Unified" } else { "Split" })
-                    .xsmall()
-                    .ghost()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.diff_split = !this.diff_split;
-                        cx.notify();
-                    })),
-            )
-            .child(div().text_xs().text_color(c(theme::ADD)).child(format!("+{}", view.diff.additions)))
-            .child(div().text_xs().text_color(c(theme::DEL)).child(format!("-{}", view.diff.deletions)))
+            // An LFS file has no lines to lay out or count.
+            .when(view.diff.lfs.is_none(), |row| {
+                row.child(
+                    button("diff-layout")
+                        .label(if self.diff_split { "Unified" } else { "Split" })
+                        .xsmall()
+                        .ghost()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.diff_split = !this.diff_split;
+                            cx.notify();
+                        })),
+                )
+                .child(div().text_xs().text_color(c(theme::ADD)).child(format!("+{}", view.diff.additions)))
+                .child(div().text_xs().text_color(c(theme::DEL)).child(format!("-{}", view.diff.deletions)))
+            })
             .child(button("close-diff").label("Close").xsmall().ghost().on_click(cx.listener(|this, _, _, cx| {
                 this.diff = None;
                 cx.notify();
@@ -292,4 +297,36 @@ mod tests {
         let rows = split_pairs(&diff.hunks[0].lines);
         assert_eq!(rows, vec![(Some(0), Some(0)), (Some(1), Some(3)), (Some(2), None), (Some(4), Some(4)), (None, Some(5))]);
     }
+}
+
+/// An LFS file instead of its placeholder text: where it's stored and how
+/// big it is (before and after).
+fn lfs_card(lfs: gitchrono_core::LfsDiff) -> impl IntoElement {
+    let size = |bytes: u64| match bytes {
+        b if b >= 1 << 30 => format!("{:.1} GB", b as f64 / (1u64 << 30) as f64),
+        b if b >= 1 << 20 => format!("{:.1} MB", b as f64 / (1u64 << 20) as f64),
+        b if b >= 1 << 10 => format!("{:.0} KB", b as f64 / 1024.),
+        b => format!("{b} bytes"),
+    };
+    let detail = match (lfs.old_size, lfs.new_size) {
+        (None, Some(new)) => format!("New file, {}", size(new)),
+        (Some(old), None) => format!("Deleted, was {}", size(old)),
+        (Some(old), Some(new)) if old == new => format!("Changed, still {}", size(new)),
+        (Some(old), Some(new)) => format!("{} → {}", size(old), size(new)),
+        (None, None) => String::new(),
+    };
+    div()
+        .m_4()
+        .p_4()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .rounded_md()
+        .border_1()
+        .border_color(c(theme::BORDER))
+        .bg(c(theme::PANEL_ALT))
+        // The diff area is monospaced; this is a message, not code.
+        .font_family(".SystemUIFont")
+        .child(div().text_sm().font_weight(FontWeight::MEDIUM).text_color(c(theme::TEXT)).child("Stored in Git LFS"))
+        .child(div().text_sm().text_color(c(theme::MUTED)).child(detail))
 }

@@ -1,5 +1,6 @@
 //! Interactive rebase editor: reorder commits and pick an action for each.
 
+use gitchrono_core::explain::Explained;
 use gitchrono_core::{RebaseAction, RebaseStep, Repo};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
@@ -39,7 +40,7 @@ impl Workspace {
             this.update_in(cx, |this, window, cx| {
                 match result {
                     Ok(steps) if steps.is_empty() => {
-                        this.error = Some("The current branch has no commits to rebase here.".into());
+                        this.error = Some(Explained::plain("The current branch has no commits to rebase here."));
                     }
                     Ok(steps) => {
                         let messages = steps
@@ -51,7 +52,7 @@ impl Workspace {
                             .collect();
                         this.rebase_editor = Some(RebaseEditor { base, steps, messages });
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })

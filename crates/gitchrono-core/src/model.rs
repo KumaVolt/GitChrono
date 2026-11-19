@@ -199,6 +199,17 @@ pub struct FileDiff {
     pub hunks: Vec<Hunk>,
     pub additions: usize,
     pub deletions: usize,
+    /// Set when the file lives in Git LFS: git's diff is then of the small
+    /// placeholder (pointer) files, so the hunks are left empty.
+    pub lfs: Option<LfsDiff>,
+}
+
+/// An LFS file's sizes before and after; `None` when it didn't exist then
+/// (or wasn't in LFS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LfsDiff {
+    pub old_size: Option<u64>,
+    pub new_size: Option<u64>,
 }
 
 /// A linked (or the main) working tree of the repository.

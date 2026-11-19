@@ -7,13 +7,14 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 |---|---|---|
 | Commit graph (all refs, date order, lanes, merges) | ✅ | gix walk in `--date-order` (like GitKraken) + `gitchrono-graph` |
 | Ref badges (branch / remote / tag / stash / HEAD) | ✅ | |
-| WIP node + staging panel (file-level stage/unstage) | ✅ | WIP row joined to HEAD, with change counts |
+| WIP node + staging panel (file-level stage/unstage) | ✅ | WIP row joined to HEAD, with change counts; the unstaged and staged lists fold away and share the height by a draggable bar |
 | Commit / amend | ✅ | |
 | Commit detail + changed files | ✅ | gix tree diff with rename tracking |
 | Diff viewer (unified) | ✅ | |
 | Sidebar: local / remote / tags / stashes | ✅ | double-click to checkout |
 | Fetch / pull / push (+ upstream, ahead/behind) | ✅ | |
-| Stash push / pop / apply / drop | ✅ | |
+| Readable errors | ✅ | git failures explained in plain words with a fix button (Stash and pull, Stash changes, Pull with merge); git's output only under Details |
+| Stash push / pop / apply / drop | ✅ | the Stash button stashes at once, named after the commit summary or "WIP on <branch>"; rename from its menu |
 | Checkout, branch here, cherry-pick, revert, reset | ✅ | buttons in detail panel |
 | Merge/rebase/cherry-pick in progress banner (continue/abort) | ✅ | |
 | Multi-select files in staging (⌘/Shift-click; stage, unstage, discard) | ✅ | a filter box narrows both lists; Stage / Unstage all then act on what's shown |
@@ -29,7 +30,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | Command palette (⌘P / ⌘K) | ✅ | actions, branches, tabs, repos; fuzzy |
 | Search commits (message, author, sha) | ✅ | ⌘F, dims non-matches, Enter / ⇧Enter |
 | Tab per repo, recent repos, restore on launch | ✅ | `shell.rs`; ⌘T / ⌘W / ctrl-tab |
-| Project folders (parent folder → all repos inside) | ✅ | home tab, scan depth 4, "Open all", collapsible groups |
+| Project folders (parent folder → all repos inside) | ✅ | home tab, scan depth 4, collapsible groups; icon actions (fetch, pull, open all, remove) per group and per repository |
 | Embedded terminal (per repo, multiple tabs) | ✅ | `alacritty_terminal` PTY, ⌥T; no mouse selection/copy yet |
 | Version-aware tag sorting | ✅ | |
 | Lazy paging past 50k commits | ⬜ | |
@@ -43,7 +44,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · 💎 Pro (closed)
 | File history + blame | ✅ history follows renames (diff per commit); blame with jump-to-commit |
 | Side-by-side diff, syntax highlighting | ✅ syntect (pure Rust); Split/Unified toggle, line staging in both |
 | Undo / redo of operations | ✅ ref snapshots before/after every op; soft undo for commits, `reset --keep` otherwise |
-| Submodules, LFS, worktrees | 🟡 worktrees ✅, submodules ✅ (list, init/update, open in tab); LFS todo |
+| Submodules, LFS, worktrees | 🟡 worktrees ✅, submodules ✅ (list, init/update, open in tab); LFS ✅ (spots a missing or unset Git LFS and offers the fix, downloads files, "Track with Git LFS" in the file menu, size-only diffs; bundled on Windows); LFS locking todo |
 | Commit signing indicators | ✅ GPG/SSH status in commit details |
 | Graph compaction for wide histories | 🟡 date order keeps wide histories close to `git log --graph --date-order`; drag the graph column's edge (down to one dot per commit) |
 | Packaging: signed .dmg, Windows, Linux, auto-update | 🟡 auto-update from GitHub releases (checksum-verified) ✅; signing todo |
@@ -83,7 +84,7 @@ Ordered by how much a daily user misses them.
 | Hide / solo / pin branches | | ✅ hide & solo (saved per repo); pin todo |
 | Tab aliases, tab reordering | | ⬜ |
 | Clone / init dialogs | including from GitHub/GitLab | ⬜ |
-| Submodules and LFS | | 🟡 submodules ✅, LFS todo |
+| Submodules and LFS | | 🟡 submodules ✅, LFS ✅ (no locking yet) |
 | Commit signing (GPG/SSH) and indicators | | ✅ indicators |
 | Zoom levels / font size | 140–300% | ⬜ |
 | Integrations and Launchpad | PRs/issues across hosts, Jira | 🟡 GitHub PRs via `gh` (list, open, check out, create) |

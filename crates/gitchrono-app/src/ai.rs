@@ -178,7 +178,7 @@ impl Workspace {
                         );
                         done(this, completion.text, window, cx);
                     }
-                    Err(e) => this.error = Some(format!("AI: {e:#}").into()),
+                    Err(e) => this.error = Some(gitchrono_core::explain::Explained::plain(format!("The AI request failed: {e:#}"))),
                 }
                 cx.notify();
             })

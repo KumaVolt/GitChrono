@@ -147,6 +147,10 @@ struct RepoPrefs {
     /// Sidebar sections the user collapsed ("local", "remote", "tags", …).
     #[serde(default)]
     collapsed: std::collections::BTreeMap<String, Vec<String>>,
+    /// The unstaged list's share of the height it and the staged list
+    /// split (all repositories); `None` splits evenly.
+    #[serde(default)]
+    staging_split: Option<f32>,
 }
 
 fn prefs_path() -> Option<PathBuf> {
@@ -178,6 +182,16 @@ pub fn save_collapsed_sections(root: &Path, sections: &std::collections::BTreeSe
     } else {
         prefs.collapsed.insert(key, sections.iter().cloned().collect());
     }
+    write_prefs(&prefs);
+}
+
+pub fn load_staging_split() -> Option<f32> {
+    load_prefs().staging_split
+}
+
+pub fn save_staging_split(split: Option<f32>) {
+    let mut prefs = load_prefs();
+    prefs.staging_split = split;
     write_prefs(&prefs);
 }
 

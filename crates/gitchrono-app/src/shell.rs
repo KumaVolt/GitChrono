@@ -10,6 +10,7 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 
 use crate::context_menu::{Menu, RightClickMenu as _};
 use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -302,7 +303,7 @@ impl Shell {
             this.update_in(cx, |this, window, cx| match result {
                 Ok(()) => this.open_path(path, window, cx),
                 Err(e) => {
-                    this.error = Some(format!("Couldn't create a repository in {}: {e:#}", path.display()).into());
+                    this.error = Some(format!("Couldn't create a repository in {}: {}", projects::short_path(&path), gitchrono_core::explain::explain(&e).message).into());
                     cx.notify();
                 }
             })
@@ -710,27 +711,21 @@ impl Shell {
         let disabled = paths.is_empty() || self.sync.as_ref().is_some_and(BulkSync::running);
         let chosen = cx.global::<crate::avatars::Prefs>().pull.filter(|a| *a != PullAction::FetchAll);
         let tip = match chosen {
-            Some(action) => format!("Pull every repository listed: {}", action.label()),
-            None => "Pull every repository listed, each following its git settings".to_string(),
+            Some(action) => format!("Pull all: every repository listed, {}", action.label().to_lowercase()),
+            None => "Pull all: every repository listed, each following its git settings".to_string(),
         };
         let fetch = paths.clone();
         let shell = cx.entity().downgrade();
         vec![
-            button(("fetch-all", group))
-                .label("Fetch all")
-                .xsmall()
-                .ghost()
-                .tooltip("Fetch every repository listed; no branch moves")
+            icon_button(("fetch-all", group), Lucide::RefreshCw)
+                .tooltip("Fetch all: every repository listed; no branch moves")
                 .disabled_if(disabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     this.start_sync(fetch.clone(), SyncAction::Fetch, cx);
                 }))
                 .into_any_element(),
-            button(("pull-all", group))
-                .label("Pull all")
-                .xsmall()
-                .ghost()
+            icon_button(("pull-all", group), Lucide::ArrowDownToLine)
                 .tooltip(tip)
                 .disabled_if(disabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -829,15 +824,22 @@ impl Shell {
             RowRemove::Recent => "Remove from Recent",
             RowRemove::Folder(_) => "Remove from this folder's list (nothing is deleted)",
         });
-        let remove_button = button("row-remove")
-            .label("×")
-            .xsmall()
-            .ghost()
+        let remove_button = icon_button("row-remove", Lucide::X)
             .tooltip(tooltip)
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
                 this.remove_row(&target, &remove, cx);
             }));
+        let busy = self.sync.as_ref().is_some_and(BulkSync::running);
+        let (fetch, pull) = (path.clone(), path.clone());
+        let fetch_button = icon_button("row-fetch", Lucide::RefreshCw).tooltip("Fetch").disabled_if(busy).on_click(cx.listener(move |this, _, _, cx| {
+            cx.stop_propagation();
+            this.start_sync(vec![fetch.clone()], SyncAction::Fetch, cx);
+        }));
+        let pull_button = icon_button("row-pull", Lucide::ArrowDownToLine).tooltip("Pull").disabled_if(busy).on_click(cx.listener(move |this, _, _, cx| {
+            cx.stop_propagation();
+            this.start_sync(vec![pull.clone()], SyncAction::Pull(Workspace::pull_mode(cx)), cx);
+        }));
         let is_open = self.tabs.iter().any(|t| matches!(t, Tab::Repo { path: p, .. } if p == path));
         let hint = match base {
             Some(base) => path.parent().filter(|parent| parent != base).and_then(|parent| parent.strip_prefix(base).ok()).map(|rel| rel.display().to_string()),
@@ -857,7 +859,15 @@ impl Shell {
             .group("repo-row")
             .cursor_pointer()
             .hover(|d| d.bg(c(theme::HOVER)))
-            .child(div().size(px(6.)).rounded_full().bg(c(if is_open { theme::ACCENT } else { theme::FAINT })))
+            // Blue when the repository is open in a tab.
+            .child(
+                div()
+                    .id("open-dot")
+                    .size(px(6.))
+                    .rounded_full()
+                    .bg(c(if is_open { theme::ACCENT } else { theme::FAINT }))
+                    .when(is_open, |d| d.tooltip(|window, cx| Tooltip::new("Open in a tab").build(window, cx))),
+            )
             .child(div().w(px(170.)).flex_none().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(projects::display_name(path)))
             .child(
                 div()
@@ -888,11 +898,18 @@ impl Shell {
                 }
                 None => div().flex_1().min_w_0().text_xs().text_color(c(theme::FAINT)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().children(hint).into_any_element(),
             })
-            .when(is_open, |d| {
-                d.child(div().px_1p5().rounded_sm().bg(c(theme::SELECTED)).text_xs().text_color(c(theme::ACCENT)).child("open"))
-            })
             // Shown on hover only.
-            .child(div().flex_none().opacity(0.).group_hover("repo-row", |s| s.opacity(1.)).child(remove_button))
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .group_hover("repo-row", |s| s.opacity(1.))
+                    .child(fetch_button)
+                    .child(pull_button)
+                    .child(remove_button),
+            )
             .on_click(cx.listener(move |this, _, window, cx| this.open_path(open.clone(), window, cx)))
     }
 
@@ -1025,10 +1042,8 @@ impl Shell {
             let open_all: Vec<PathBuf> = shown.iter().map(|p| (*p).clone()).collect();
             let mut actions = self.sync_actions(fi + 1, open_all.clone(), cx);
             actions.extend([
-                button(("folder-open-all", fi))
-                    .label("Open all")
-                    .xsmall()
-                    .ghost()
+                icon_button(("folder-open-all", fi), Lucide::FolderOpen)
+                    .tooltip(if open_all.len() > 20 { "Open all: too many to open at once (over 20)" } else { "Open all in tabs" })
                     .disabled_if(open_all.is_empty() || open_all.len() > 20)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
@@ -1042,10 +1057,8 @@ impl Shell {
                         this.activate(last, window, cx);
                     }))
                     .into_any_element(),
-                button(("folder-remove", fi))
-                    .label("Remove")
-                    .xsmall()
-                    .ghost()
+                icon_button(("folder-remove", fi), Lucide::FolderMinus)
+                    .tooltip("Remove this folder from Home (nothing is deleted)")
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.confirm_remove_folder(remove.clone(), cx);
@@ -1189,4 +1202,9 @@ impl Render for Shell {
             .children(self.render_clone(cx))
             .children(self.render_confirm(cx))
     }
+}
+
+/// A small icon-only button; give it a tooltip saying what it does.
+fn icon_button(id: impl Into<ElementId>, icon: Lucide) -> gpui_kit::component::button::Button {
+    button(id).ghost().xsmall().icon(Icon::new(icon).size(px(14.)))
 }

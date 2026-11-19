@@ -1,6 +1,7 @@
 //! Repository window state and the actions that mutate it. Rendering lives in
 //! `views`, `diff_view` and `menus`.
 
+use gitchrono_core::explain::{Explained, Fix, explain};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -162,6 +163,8 @@ pub struct Workspace {
     /// Something done on the user's behalf worth knowing (changes stashed to
     /// make room for a stash); cleared by the next operation.
     pub notice: Option<SharedString>,
+    /// Where this repository stands with Git LFS (refreshed on reload).
+    pub lfs: gitchrono_core::lfs::LfsState,
     /// Set when a pull or push found no upstream; the banner offers the fix.
     pub no_upstream: Option<gitchrono_core::NoUpstream>,
     /// Clear the commit message on the next render (needs the window).
@@ -175,7 +178,10 @@ pub struct Workspace {
     pub diff: Option<DiffView>,
     pub prompt: Option<Prompt>,
     pub busy: Option<SharedString>,
-    pub error: Option<SharedString>,
+    /// The last failure, explained for people; git's own text only shows
+    /// when `error_details` is on.
+    pub error: Option<Explained>,
+    pub error_details: bool,
     pub summary: Entity<InputState>,
     pub description: Entity<TextareaState>,
     pub amend: bool,
@@ -216,6 +222,9 @@ pub struct Workspace {
     pub ref_filter: gitchrono_core::RefFilter,
     /// Collapsed sidebar sections, saved per repository.
     pub collapsed_sections: std::collections::BTreeSet<String>,
+    /// The unstaged list's share of the staging lists' height, set by
+    /// dragging the bar between them; `None` splits evenly.
+    pub staging_split: Option<f32>,
     pub conflict: Option<crate::conflict_ui::ConflictView>,
     /// Side-by-side instead of unified diffs.
     pub diff_split: bool,
@@ -279,7 +288,9 @@ impl Workspace {
             diff: None,
             prompt: None,
             busy: None,
+            lfs: Default::default(),
             error: None,
+            error_details: false,
             summary,
             description,
             amend: false,
@@ -314,6 +325,7 @@ impl Workspace {
             drop_menu: None,
             ref_filter: Default::default(),
             collapsed_sections: Default::default(),
+            staging_split: crate::projects::load_staging_split(),
             conflict: None,
             diff_split: std::env::var_os("GITCHRONO_SPLIT").is_some(),
             file_history: None,
@@ -347,7 +359,7 @@ impl Workspace {
                 self.reload(cx);
                 self.load_pull_requests(cx);
             }
-            Err(e) => self.error = Some(format!("{e:#}").into()),
+            Err(e) => self.show_error(&e),
         }
         cx.notify();
     }
@@ -448,7 +460,7 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 match saved {
                     Ok(path) => this.notice = Some(format!("Saved the patch to {}.", path.display()).into()),
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })
@@ -491,6 +503,18 @@ impl Workspace {
         {
             p.suggest = Some(Suggest::BranchName);
         }
+    }
+
+    /// Stashes everything right away, as GitKraken does. The commit summary,
+    /// when there is one, names the stash; otherwise git's "WIP on <branch>: …".
+    /// Rename it later from its context menu.
+    pub fn stash_now(&mut self, cx: &mut Context<Self>) {
+        if self.status.is_clean() {
+            return;
+        }
+        let summary = self.summary.read(cx).value().trim().to_string();
+        let message = (!summary.is_empty()).then_some(summary);
+        self.run("Stashing", Change::Refs, cx, move |r| r.stash_push(message.as_deref()));
     }
 
     pub fn prompt_stash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -646,7 +670,7 @@ impl Workspace {
         let spawned = match Terminal::spawn(&root) {
             Ok(spawned) => spawned,
             Err(e) => {
-                self.error = Some(format!("Terminal: {e:#}").into());
+                self.error = Some(Explained::plain(format!("Couldn't open the terminal: {e:#}")));
                 cx.notify();
                 return;
             }
@@ -703,17 +727,19 @@ impl Workspace {
         let filter = self.ref_filter.clone();
         let task = cx.background_spawn(async move {
             let snap = repo.snapshot_filtered(LOG_LIMIT, &filter)?;
+            let lfs = repo.lfs_state();
             let graph = gitchrono_graph::layout(
                 snap.commits.iter().map(|c| (c.id.as_str(), c.parents.iter().map(String::as_str))),
             );
             let stash_lines = crate::graph_paint::stash_lines(&graph, &snap.commits);
-            anyhow::Ok((snap, graph, stash_lines))
+            anyhow::Ok((snap, graph, stash_lines, lfs))
         });
         self.load_task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok((mut snap, graph, stash_lines)) => {
+                    Ok((mut snap, graph, stash_lines, lfs)) => {
+                        this.lfs = lfs;
                         for gone in this.snap.worktrees.iter().filter(|old| !snap.worktrees.iter().any(|w| w.path == old.path)) {
                             cx.emit(WorkspaceEvent::WorktreeRemoved(gone.path.clone()));
                         }
@@ -757,7 +783,7 @@ impl Workspace {
                             }
                         }
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })
@@ -799,7 +825,7 @@ impl Workspace {
                             }
                         }
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })
@@ -859,7 +885,7 @@ impl Workspace {
                 if let Err(e) = result {
                     match e.downcast::<gitchrono_core::NoUpstream>() {
                         Ok(why) => this.no_upstream = Some(why),
-                        Err(e) => this.error = Some(format!("{e:#}").into()),
+                        Err(e) => this.show_error(&e),
                     }
                 }
                 if let Some(entry) = entry {
@@ -1058,6 +1084,53 @@ impl Workspace {
         }
     }
 
+    /// Shows a failure in plain words (see `gitchrono_core::explain`).
+    pub fn show_error(&mut self, e: &anyhow::Error) {
+        self.error = Some(explain(e));
+        self.error_details = false;
+    }
+
+    /// Sets Git LFS up for this repository and downloads its files.
+    pub fn lfs_setup(&mut self, cx: &mut Context<Self>) {
+        self.run_inner("Setting up Git LFS".into(), Change::Refs, false, cx, |r| r.lfs_setup(), |_, _, _| {});
+    }
+
+    pub fn lfs_download(&mut self, cx: &mut Context<Self>) {
+        self.run_inner("Downloading LFS files".into(), Change::Refs, false, cx, |r| r.lfs_pull(), |_, _, _| {});
+    }
+
+    /// Deletes local copies of old LFS files that are safely on the remote.
+    pub fn lfs_prune(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm(
+            "Free up space",
+            "Delete this computer's copies of older Git LFS files? Only files already on the remote and not needed by recent commits go; checking out an old commit downloads them again.".into(),
+            "Free up space",
+            "Pruning LFS files",
+            window,
+            cx,
+            |r| r.lfs_prune(),
+        );
+    }
+
+    /// After installing Git LFS: look for it again.
+    pub fn lfs_recheck(&mut self, cx: &mut Context<Self>) {
+        gitchrono_core::lfs::recheck();
+        self.reload(cx);
+    }
+
+    /// Carries out the fix an error offered.
+    pub fn apply_fix(&mut self, fix: Fix, cx: &mut Context<Self>) {
+        self.error = None;
+        match fix {
+            Fix::StashAndPull => {
+                let mode = Self::pull_mode(cx);
+                self.run("Pulling", Change::Refs, cx, move |r| r.pull_autostash(mode));
+            }
+            Fix::Stash => self.stash_now(cx),
+            Fix::PullMerge => self.run("Pulling", Change::Refs, cx, |r| r.pull(gitchrono_core::PullMode::Merge)),
+        }
+    }
+
     pub fn toggle_section(&mut self, key: &str, cx: &mut Context<Self>) {
         if !self.collapsed_sections.remove(key) {
             self.collapsed_sections.insert(key.to_string());
@@ -1253,7 +1326,7 @@ impl Workspace {
                             highlights: Arc::new(highlights),
                         })
                     }
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                    Err(e) => this.show_error(&e),
                 }
                 cx.notify();
             })
@@ -1320,7 +1393,7 @@ impl Workspace {
         let (Some(repo), Some(commit)) = (self.repo.clone(), self.selected_commit()) else { return };
         let stash = self.snap.refs.stashes.iter().find(|s| s.target == commit.id).map(|s| s.index);
         if stash.is_none() && commit.parents.len() > 1 {
-            self.error = Some("Merge commits can't be reworded: rewriting one would flatten the merge.".into());
+            self.error = Some(Explained::plain("Merge commits can't be reworded: rewriting one would flatten the merge."));
             cx.notify();
             return;
         }

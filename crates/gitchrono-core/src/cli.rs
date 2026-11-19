@@ -346,7 +346,14 @@ impl Repo {
                 .args(["diff", "--no-color", "--no-index", "--", "/dev/null", &change.path])
                 .current_dir(self.root())
                 .output()?;
-            String::from_utf8_lossy(&output.stdout).into_owned()
+            let out = String::from_utf8_lossy(&output.stdout).into_owned();
+            // A new file headed for LFS: git's diff shows its raw contents
+            // (or "Binary files differ"); what matters is that it goes to LFS.
+            if self.is_lfs_path(&change.path) {
+                let size = std::fs::metadata(self.root().join(&change.path)).map(|m| m.len()).ok();
+                return Ok(FileDiff { path: change.path.clone(), lfs: Some(LfsDiff { old_size: None, new_size: size }), ..Default::default() });
+            }
+            out
         } else if staged {
             self.git(&["diff", "--no-color", "--cached", "-M", "--", &change.path])?
         } else {
@@ -627,15 +634,27 @@ impl Repo {
         };
         self.git(args).map(drop).map_err(|e| {
             let Some(git_err) = e.downcast_ref::<GitError>() else { return e };
-            if git_err.stderr.contains("Not possible to fast-forward") {
-                return anyhow::anyhow!("This branch and its upstream have both moved on, so it can't be fast-forwarded. Pull with a merge or a rebase instead.");
-            }
             // Whatever the check above missed (say, an upstream with no remote).
             match git_err.is_no_upstream().then(|| self.missing_upstream().ok().flatten()).flatten() {
                 Some(why) => why.into(),
                 None => e,
             }
         })
+    }
+
+    /// `pull`, setting uncommitted changes aside meanwhile and putting them
+    /// back afterwards: for when they're in the way of the incoming commits.
+    pub fn pull_autostash(&self, mode: PullMode) -> Result<()> {
+        if let Some(why) = self.missing_upstream()? {
+            return Err(why.into());
+        }
+        let args: &[&str] = match mode {
+            PullMode::Config if self.pull_rebases() => &["pull", "--rebase", "--autostash"],
+            PullMode::Config | PullMode::Merge => &["pull", "--no-rebase", "--autostash"],
+            PullMode::FastForwardOnly => &["pull", "--ff-only", "--autostash"],
+            PullMode::Rebase => &["pull", "--rebase", "--autostash"],
+        };
+        self.git(args).map(drop)
     }
 
     /// Why the current branch has nothing to pull from, or `None` when it has

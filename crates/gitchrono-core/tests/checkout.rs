@@ -105,8 +105,9 @@ fn pull_modes_on_diverged_branches() {
     let (base, b) = diverged("ff-only");
     let repo = Repo::open(&b).unwrap();
     let before = git(&b, &["rev-parse", "HEAD"]).unwrap();
-    let err = format!("{:#}", repo.pull(PullMode::FastForwardOnly).unwrap_err());
-    assert!(err.contains("can't be fast-forwarded"), "a short explanation, not git's hints: {err}");
+    let err = gitchrono_core::explain::explain(&repo.pull(PullMode::FastForwardOnly).unwrap_err());
+    assert!(err.message.contains("both moved on"), "a short explanation, not git's hints: {}", err.message);
+    assert_eq!(err.fix, Some(gitchrono_core::explain::Fix::PullMerge));
     assert_eq!(git(&b, &["rev-parse", "HEAD"]).unwrap(), before, "and leaves the branch alone");
     let _ = std::fs::remove_dir_all(&base);
 

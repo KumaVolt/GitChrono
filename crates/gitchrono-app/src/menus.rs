@@ -407,7 +407,35 @@ fn ignore_menu(ws: &Ws, path: &str, tracked: bool) -> Menu {
     })
 }
 
-pub fn file_menu(menu: Menu, ws: &Ws, change: &FileChange, staged: bool) -> Menu {
+/// "Track with Git LFS": this file, or every file with its extension. Left
+/// out for files that already go to LFS.
+fn lfs_menu(menu: Menu, ws: &Ws, path: &str, cx: &App) -> Menu {
+    let in_lfs = ws.upgrade().is_some_and(|ws| ws.read(cx).repo.as_ref().is_some_and(|r| r.is_lfs_path(path)));
+    if in_lfs {
+        return menu;
+    }
+    let name = path.rsplit('/').next().unwrap_or(path).to_string();
+    let ext = name.rsplit_once('.').filter(|(stem, ext)| !stem.is_empty() && !ext.is_empty()).map(|(_, ext)| ext.to_string());
+    let mut choices = vec![(format!("Track '{name}'"), path.to_string())];
+    if let Some(ext) = ext {
+        choices.push((format!("Track all '.{ext}' files"), format!("*.{ext}")));
+    }
+    let sub = choices.into_iter().fold(Menu::new(), |sub, (label, pattern)| {
+        sub.item(item(label, ws, move |this, _, cx| {
+            let pattern = pattern.clone();
+            let shown = pattern.clone();
+            this.run_inner("Tracking with Git LFS".into(), Change::Refs, false, cx, move |r| r.lfs_track(&pattern), move |this, ok, cx| {
+                if ok {
+                    this.notice = Some(format!("{shown} now goes to Git LFS when staged. Commit .gitattributes along with it so everyone's copy does the same; what's already committed stays as it is.").into());
+                    cx.notify();
+                }
+            });
+        }))
+    });
+    menu.submenu("Track with Git LFS", sub)
+}
+
+pub fn file_menu(menu: Menu, ws: &Ws, change: &FileChange, staged: bool, cx: &App) -> Menu {
     let path = change.path.clone();
     let conflicted = change.status == FileStatus::Conflicted;
     let (c1, discard, patch) = (change.clone(), change.clone(), change.clone());
@@ -435,6 +463,7 @@ pub fn file_menu(menu: Menu, ws: &Ws, change: &FileChange, staged: bool) -> Menu
     .when(!conflicted && change.status != FileStatus::Deleted, |menu| {
         menu.submenu("Ignore", ignore_menu(ws, &path, change.status != FileStatus::Untracked))
     })
+    .when(!conflicted && change.status != FileStatus::Deleted && gitchrono_core::lfs::installed(), |menu| lfs_menu(menu, ws, &path, cx))
     .when(!conflicted, |menu| {
         menu.item(item("Stash file", ws, move |this, _, cx| {
             let path = stash.clone();

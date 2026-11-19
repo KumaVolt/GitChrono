@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use gpui_kit::assets::{IconName, IconNamed};
 use gpui_kit::*;
 
-gpui_kit::assets::icon_assets!(Lucide, [RotateCcw, RotateCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus, ChevronDown, Check, Loader]);
+gpui_kit::assets::icon_assets!(Lucide, [RotateCcw, RotateCw, ArrowDownToLine, ArrowUpFromLine, GitBranch, Terminal, Sparkles, List, ListTree, ListPlus, ListMinus, ChevronDown, Check, Loader, RefreshCw, FolderOpen, FolderMinus, X, FileBox]);
 
 const STASH: (&str, &[u8]) = ("icons/gitchrono/stash.svg", include_bytes!("../assets/icons/stash.svg"));
 const STASH_POP: (&str, &[u8]) = ("icons/gitchrono/stash-pop.svg", include_bytes!("../assets/icons/stash-pop.svg"));
@@ -21,6 +21,7 @@ pub enum ToolIcon {
     Stash,
     Pop,
     Terminal,
+    Lfs,
     Ai,
 }
 
@@ -35,6 +36,7 @@ impl IconNamed for ToolIcon {
             Self::Stash => STASH.0.into(),
             Self::Pop => STASH_POP.0.into(),
             Self::Terminal => IconName::Terminal.path(),
+            Self::Lfs => IconName::FileBox.path(),
             Self::Ai => IconName::Sparkles.path(),
         }
     }
@@ -65,7 +67,7 @@ mod tests {
     use gpui_kit::AssetSource as _;
     use gpui_kit::assets::IconNamed as _;
 
-    const ALL: [ToolIcon; 9] = [
+    const ALL: [ToolIcon; 10] = [
         ToolIcon::Undo,
         ToolIcon::Redo,
         ToolIcon::Pull,
@@ -74,6 +76,7 @@ mod tests {
         ToolIcon::Stash,
         ToolIcon::Pop,
         ToolIcon::Terminal,
+        ToolIcon::Lfs,
         ToolIcon::Ai,
     ];
 
@@ -83,6 +86,16 @@ mod tests {
         let path = gpui_kit::component::IconName::Loader.path();
         let svg = Assets.load(&path).unwrap().unwrap_or_else(|| panic!("{path} is not embedded"));
         assert!(svg.starts_with(b"<svg"));
+    }
+
+    #[test]
+    fn the_home_page_icons_are_embedded() {
+        use gpui_kit::assets::IconName as Lucide;
+        for icon in [Lucide::RefreshCw, Lucide::ArrowDownToLine, Lucide::FolderOpen, Lucide::FolderMinus, Lucide::X] {
+            let path = icon.path();
+            let svg = Assets.load(&path).unwrap().unwrap_or_else(|| panic!("{path} is not embedded"));
+            assert!(svg.starts_with(b"<svg"));
+        }
     }
 
     #[test]

@@ -93,6 +93,19 @@ jobs:
           if ((Get-FileHash mingit.zip -Algorithm SHA256).Hash.ToLower() -ne $sha) { throw "MinGit checksum mismatch" }
           Expand-Archive mingit.zip -DestinationPath "$stage/mingit"
           & "$stage/mingit/cmd/git.exe" --version
+          # Git LFS, which MinGit leaves out (Git for Windows includes it).
+          # Pinned and checksum-verified like MinGit (MIT, license alongside).
+          $lfs = "https://github.com/git-lfs/git-lfs/releases/download/v3.8.1/git-lfs-windows-amd64-v3.8.1.zip"
+          $lfsSha = "5bb771c12b3dacc535e912d0270a010c209d4da2e63819c5918e3547c2defed9"
+          Invoke-WebRequest $lfs -OutFile git-lfs.zip
+          if ((Get-FileHash git-lfs.zip -Algorithm SHA256).Hash.ToLower() -ne $lfsSha) { throw "Git LFS checksum mismatch" }
+          Expand-Archive git-lfs.zip -DestinationPath git-lfs
+          Copy-Item (Get-ChildItem git-lfs -Recurse -Filter git-lfs.exe | Select-Object -First 1).FullName "$stage/mingit/mingw64/bin/"
+          Copy-Item (Get-ChildItem git-lfs -Recurse -Filter LICENSE.md | Select-Object -First 1).FullName "$stage/mingit/git-lfs-LICENSE.md"
+          # Its filters go in the bundled git's own system config, as Git for Windows does.
+          & "$stage/mingit/cmd/git.exe" lfs install --system --skip-repo
+          if ($LASTEXITCODE) { throw "git lfs install failed" }
+          & "$stage/mingit/cmd/git.exe" lfs version
           # The zip is what in-app updates download (and a portable copy);
           # the installer is what the website offers.
           Compress-Archive -Path $stage -DestinationPath "$stage.zip"
