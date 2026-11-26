@@ -142,10 +142,6 @@ footer a:hover { color: var(--text); }
 .faq details { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; }
 .faq summary { cursor: pointer; font-weight: 600; }
 .faq p { color: var(--muted); margin: 10px 0 0; line-height: 1.6; }
-.consent { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 50; max-width: 720px; margin: 0 auto; display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-.consent[hidden] { display: none; }
-.consent p { margin: 0; color: var(--muted); font-size: 14px; flex: 1 1 280px; }
-.consent div { display: flex; gap: 8px; }
 @media (max-width: 600px) {
   .wrap { padding: 0 16px; }
   .code { font-size: 12px; }

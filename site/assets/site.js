@@ -1,16 +1,14 @@
-// Google Tag Manager (GTM-5ZZ3Q3X7), loaded only after the visitor accepts
-// cookies (GDPR). Until then Consent Mode v2 stays "denied" and nothing from
-// Google loads. Google Analytics is configured as a tag inside GTM.
+// Google Tag Manager (GTM-5ZZ3Q3X7), loaded only after the visitor allows statistics
+// in the OpenCookie banner (loaded first in <head>). OpenCookie also sets Google
+// Consent Mode v2, so it starts "denied". Google Analytics is a tag inside GTM.
 window.GTM_ID = 'GTM-5ZZ3Q3X7';
 window.dataLayer = window.dataLayer || [];
 function gtag() { dataLayer.push(arguments); }
-gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied' });
 // Custom events go to the data layer; GTM forwards them once it's loaded.
 window.track = function (name, params) { if (window.gtmLoaded) dataLayer.push(Object.assign({ event: name }, params || {})); };
 window.loadAnalytics = function () {
   if (!window.GTM_ID || window.gtmLoaded) return;
   window.gtmLoaded = true;
-  gtag('consent', 'update', { analytics_storage: 'granted' });
   // Google's GTM loader.
   (function (w, d, s, l, i) {
     w[l] = w[l] || []; w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
@@ -18,7 +16,11 @@ window.loadAnalytics = function () {
     j.async = true; j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
   })(window, document, 'script', 'dataLayer', window.GTM_ID);
 };
-try { if (localStorage.getItem('consent') === 'granted') window.loadAnalytics(); } catch (e) {}
+function syncConsent() {
+  if (window.OpenCookie && window.OpenCookie.hasConsent('statistics')) window.loadAnalytics();
+}
+syncConsent();
+window.addEventListener('opencookie:change', syncConsent);
 
 (function () {
   const $ = id => document.getElementById(id);
@@ -69,27 +71,6 @@ try { if (localStorage.getItem('consent') === 'granted') window.loadAnalytics();
           $('release-meta').innerHTML = 'First release coming soon — follow along on <a href="https://github.com/KumaVolt/GitChrono">GitHub</a>.';
         }
       });
-  }
-
-  // Consent banner (only shown when GTM is configured).
-  const banner = $('consent');
-  if (banner) {
-    let choice = null;
-    try { choice = localStorage.getItem('consent'); } catch (e) {}
-    const decide = value => {
-      try { localStorage.setItem('consent', value); } catch (e) {}
-      banner.hidden = true;
-      if (value === 'granted') window.loadAnalytics();
-    };
-    if (window.GTM_ID && !choice) banner.hidden = false;
-    $('consent-yes').onclick = () => decide('granted');
-    $('consent-no').onclick = () => decide('denied');
-  }
-  if ($('cookie-settings')) {
-    $('cookie-settings').onclick = e => {
-      e.preventDefault();
-      if (window.GTM_ID && banner) banner.hidden = false;
-    };
   }
 
   // Events: downloads per platform, GitHub clicks, FAQ opens.
